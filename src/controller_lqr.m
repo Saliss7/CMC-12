@@ -19,7 +19,12 @@
 
 function u = controller_lqr(xhat, p)
 
-u = -p.K_lqr * xhat;
+% Wrap the pole angle to [-pi, pi] so the regulation error is the true angular
+% deviation from upright (avoids a huge spurious -K*theta after full rotations)
+xw    = xhat;
+xw(3) = mod(xhat(3) + pi, 2*pi) - pi;
+
+u = -p.K_lqr * xw;
 u_max = p.u_max;
 u = max(-u_max, min(u_max, u));
 
