@@ -22,7 +22,8 @@
 %     .xhat     (N×4)   estimated state
 %     .P        (4×4×N) covariance history
 %     .u        (N×1)   control input applied over [t_k, t_{k+1}]
-%     .z        (N×2)   measurements
+%     .z        (N×2)   measurements (NaN row when the measurement was dropped)
+%     .dropped  (N×1)   logical: true when the measurement was dropped (S4)
 %     .innov    (N×2)   innovation nu (NaN if estimator does not provide it)
 %     .S        (2×2×N) innovation covariance (NaN if not provided)
 %     .mode     (N×1)   cell array: 'swingup' | 'lqr'
@@ -49,10 +50,11 @@ log.x_true = zeros(Nsteps, 4);
 log.xhat   = zeros(Nsteps, 4);
 log.P      = zeros(4, 4, Nsteps);
 log.u      = zeros(Nsteps, 1);
-log.z      = zeros(Nsteps, 2);
-log.innov  = nan(Nsteps, 2);
-log.S      = nan(2, 2, Nsteps);
-log.mode   = cell(Nsteps, 1);
+log.z       = zeros(Nsteps, 2);
+log.dropped = false(Nsteps, 1);
+log.innov   = nan(Nsteps, 2);
+log.S       = nan(2, 2, Nsteps);
+log.mode    = cell(Nsteps, 1);
 
 % Does the estimator also return a debug struct (3rd output)? Non-breaking:
 % 2-output estimators (KF/lowpass/complementary) still work. EKF/UKF expose
@@ -71,10 +73,12 @@ for k = 1:Nsteps
 
     t_k = (k-1) * pe.dt;
 
-    % 1 — Measure the true state at t_k
-    z_k = sensor_model(x_true, pe, scenario);
+    % 1 — Measure the true state at t_k (z_k = [] when the reading is dropped)
+    z_k     = sensor_model(x_true, pe, scenario);
+    dropped = isempty(z_k);
 
-    % 2 — Estimate: predict with the previous control u_{k-1}, update with z_k
+    % 2 — Estimate: predict with the previous control u_{k-1}, update with z_k.
+    %     On a dropout (z_k == []) the estimator must do a prediction-only step.
     t0 = tic;
     if provides_dbg
         [xhat, P, dbg] = estimator_fn(xhat, P, z_k, u_k_prev, pe);
@@ -93,7 +97,8 @@ for k = 1:Nsteps
     log.xhat(k,:)   = xhat';
     log.P(:,:,k)    = P;
     log.u(k)        = u_k;
-    log.z(k,:)      = z_k';
+    log.dropped(k)  = dropped;
+    if dropped, log.z(k,:) = [NaN, NaN]; else, log.z(k,:) = z_k'; end
     log.mode{k}     = mode_k;
     if isstruct(dbg)
         if isfield(dbg, 'nu'), log.innov(k,:) = dbg.nu(:)'; end
