@@ -19,7 +19,6 @@ function [u, mode] = swingup(xhat, p)
 theta     = xhat(3);
 theta_dot = xhat(4);
 
-% Wrap angle to [-pi, pi] so the catch test is valid after full rotations
 theta_w = mod(theta + pi, 2*pi) - pi;
 
 near_upright = (abs(theta_w) < deg2rad(15)) && (abs(theta_dot) < 2.0);

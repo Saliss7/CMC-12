@@ -19,8 +19,6 @@
 
 function u = controller_lqr(xhat, p)
 
-% Wrap the pole angle to [-pi, pi] so the regulation error is the true angular
-% deviation from upright (avoids a huge spurious -K*theta after full rotations)
 xw    = xhat;
 xw(3) = mod(xhat(3) + pi, 2*pi) - pi;
 
