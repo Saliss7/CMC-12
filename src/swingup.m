@@ -32,7 +32,7 @@ else
     Ed    = p.m*p.g*p.L;
     Etil  = E - Ed;
 
-    u    = -p.k_swing * theta_dot * Etil * cos(theta);
+    u    = -p.k_swing * theta_dot * Etil * cos(theta) - p.kx*xhat(1) - p.kv*xhat(2);
     u    = max(-p.u_max, min(p.u_max, u));
     mode = 'swingup';
 end

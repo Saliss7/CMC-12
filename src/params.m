@@ -59,7 +59,9 @@ R_lqr = 1/20^2;
 p.K_lqr = lqr(A, B, Q_lqr, R_lqr);   % ganho ótimo de realimentação (1x4)
 p.u_max = 20;                        % limite de força do atuador (N)
 
-% --- Swing-up energético ---
-p.k_swing = 5;   % ganho de bombeamento de energia (sintonizar: ~1 a 20)
+% --- Swing-up energético + PD de centralização do carro ---
+p.k_swing = 12;  % ganho de bombeamento de energia
+p.kx      = 5;   % ganho P sobre a posição do carro (mantém x ~ 0)
+p.kv      = 2;   % ganho D sobre a velocidade do carro (amortecimento)
 
 end
