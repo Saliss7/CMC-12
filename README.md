@@ -133,10 +133,11 @@ test(harness): adiciona cenário S4 (perda de medidas)
 
 ---
 
-## 4. Estrutura de Pastas (proposta)
+## 4. Estrutura de Pastas
 ```
 CMC-12/
 ├── README.md
+├── main.tex          # relatório (LaTeX/IEEE)
 ├── src/
 │   ├── plant_cartpole.m
 │   ├── sensor_model.m
@@ -147,15 +148,82 @@ CMC-12/
 │   ├── est_kf.m
 │   ├── est_ekf.m
 │   ├── est_ukf.m
+│   ├── linearise_upright.m
+│   ├── jacobian_f.m
+│   ├── params.m
+│   ├── main.m
 │   ├── run_scenario.m
 │   └── compute_metrics.m
 ├── scenarios/        # definições de S1..S6
-├── results/          # gráficos e tabelas gerados
-└── report/           # relatório (LaTeX/IEEE) e manual do usuário
+├── tests/            # testes unitários e geração dos resultados do relatório
+└── results/          # gráficos, animações e tabelas gerados
 ```
 
 ---
 
 ## 5. Como Executar
-_(a preencher — manual do usuário: versão do MATLAB/Simulink, script de entrada
-e como reproduzir cada cenário.)_
+
+### Requisitos
+- MATLAB (sem toolboxes especiais — apenas funções base; `chi2inv` requer o
+  **Statistics and Machine Learning Toolbox**, usado em `build_report_results.m`).
+- Nenhum passo de instalação além de clonar o repositório.
+
+### Rodar tudo (simulação + métricas)
+Da raiz do repositório:
+```matlab
+run('src/main.m')
+```
+Isso executa os 5 estimadores (`lowpass`, `complementary`, `kf`, `ekf`, `ukf`)
+em cada um dos 6 cenários (`S1`..`S6`), calcula as métricas
+(`compute_metrics.m`) e salva um `.mat` por combinação cenário/estimador em
+`results/<cenario>_<estimador>.mat`.
+
+### Gerar tabelas e figuras do relatório
+Após rodar `main.m` (os `.mat` em `results/` precisam existir):
+```matlab
+addpath('src', 'tests');
+build_report_results
+```
+Gera em `results/`:
+- `summary_table.csv` — RMSE por estado, NEES/NIS médios, tempo de
+  convergência e custo computacional para cada par (cenário, estimador);
+- `S2_swingup_theta.png`, `S1_S3_rmse_theta.png`, `S2_nees.png`,
+  `cpu_time.png` — figuras usadas no relatório.
+
+### Rodar os testes unitários
+Da raiz do repositório:
+```matlab
+addpath('src', 'tests');
+test_classical_filters   % baseline, complementar, KF linear
+test_nonlinear_filters   % EKF, UKF
+```
+Ou via linha de comando (headless):
+```bash
+matlab -batch "addpath('src','tests'); test_classical_filters"
+matlab -batch "addpath('src','tests'); test_nonlinear_filters"
+```
+
+### Reproduzir um cenário isolado
+Cada cenário em `scenarios/` retorna uma struct consumida por
+`run_scenario.m`; para rodar só um filtro num só cenário:
+```matlab
+addpath('src', 'scenarios');
+p  = params();
+sc = S2_swingup();
+log     = run_scenario(@est_ukf, sc, p);
+metrics = compute_metrics(log, p);
+```
+
+### Visualizar os resultados (painel HTML)
+Após rodar `main.m` e `build_report_results`, abra `results/dashboard.html`
+diretamente no navegador (não requer servidor) para explorar
+interativamente as trajetórias, o RMSE, o NEES/NIS e o custo computacional
+dos cinco estimadores em cada cenário S1--S6.
+
+### Compilar o relatório
+O relatório (`main.tex`, raiz do repositório) é em LaTeX/IEEE e referencia as
+figuras de `results/`. Compilar com `pdflatex`/`latexmk` (requer suporte a
+`babel[portuguese]` e `utf8`), ou abrir diretamente no Overleaf:
+```bash
+pdflatex main.tex
+```

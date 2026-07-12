@@ -46,7 +46,7 @@
 \begin{center}
 \textbf{Instituto Tecnológico de Aeronáutica - ITA} \\
 \textbf{Sistemas de Controle Contínuos e Discretos - CMC-12} \\
-\textbf{Aluno}: Matheus Felipe Ramos Borges
+\textbf{Alunos}: Pietro Maragno Trindade Marcucci, Bernardo Affonso Cheron Vendramini, Matheus Felipe Ramos Borges
 \end{center}
 
 \begin{center}
@@ -885,15 +885,10 @@ sem \emph{override} usam apenas o ruído gaussiano nominal e permanecem
 comparáveis entre si.
 
 %=================================================================================================
-%   >>> [SEÇÃO B — INÍCIO] ESTIMADORES DE ESTADO CLÁSSICOS
-%   Conteúdo redigido a pedido do responsável pela Seção B (README: "KF linear,
-%   linearização e filtragem clássica" — arquivos est_lowpass.m, est_complementary.m,
-%   est_kf.m). Texto gerado como PONTO DE PARTIDA: revise, reescreva com suas
-%   palavras e ajuste os comentários "% >>> EDITAR:" espalhados abaixo antes da
-%   entrega final. As equações e os valores numéricos foram conferidos contra o
-%   código (src/est_lowpass.m, src/est_complementary.m, src/est_kf.m, src/params.m)
-%   e contra um cálculo numérico independente (discretização ZOH), mas vale a pena
-%   reconferir depois de qualquer alteração nos parâmetros de params.m.
+%   ESTIMADORES DE ESTADO CLÁSSICOS
+%   Equações e valores numéricos conferidos contra o código (src/est_lowpass.m,
+%   src/est_complementary.m, src/est_kf.m, src/params.m) e contra um cálculo
+%   numérico independente (discretização ZOH).
 %=================================================================================================
 \section{Estimadores de Estado Clássicos: da Diferenciação ao Filtro de Kalman Linear}
 \label{sec:estimadores-classicos}
@@ -1241,35 +1236,20 @@ KF linear                & $A_d,B_d$ (linearizado)       & Ótimo, variável ($K
 \label{tab:classicos}
 \end{table}
 
-% >>> [SEÇÃO B] Esta subseção foi reescrita com resultados reais (antes eram
-% apenas expectativas qualitativas + placeholders de figura). Ver
-% tests/test_classical_filters.m para o código que gerou os números e as
-% figuras abaixo. EDITAR: os parágrafos a seguir descrevem o que os dados
-% mostraram — ajuste o texto se reformular o script ou obtiver resultados
-% diferentes, e principalmente quando a Fase 2 (harness completo, ver abaixo)
-% estiver pronta.
-
-\paragraph{Metodologia (resultado preliminar, pré-Fase~2).} No momento em que
-este texto foi escrito, a planta não-linear (\texttt{plant\_cartpole.m}), o
-controlador (\texttt{controller\_lqr.m}, \texttt{swingup.m}) e o
-\emph{dropout}/\emph{outliers} do sensor (\texttt{sensor\_model.m}) — todos de
-responsabilidade da Pessoa A — ainda eram \emph{placeholders}, de modo que o
-harness completo (\texttt{main.m}/\texttt{run\_scenario.m}) ainda não roda de
-ponta a ponta. Para validar o código desta seção e gerar resultados enquanto
-isso, foi escrito \texttt{tests/test\_classical\_filters.m}, que (i)
-confere numericamente a linearização de \texttt{linearise\_upright.m} contra o
-Jacobiano analítico independente \texttt{jacobian\_f.m} (Pessoa C) — as duas
-linearizações, feitas por pessoas diferentes, batem a menos de $10^{-8}$; (ii)
-simula uma trajetória próxima ao cenário S1 (haste a $5^{\circ}$ da vertical)
-sob realimentação de estado \emph{apenas para fins de demonstração}, usando o
-ganho $K$ já publicado na Seção~\ref{sec:matlab} — não é o
-\texttt{controller\_lqr.m} definitivo, que continua em aberto; e (iii) roda os
-três estimadores desta seção em paralelo sobre essa trajetória, com o ruído
-nominal e com o multiplicador $10\times$ do cenário S3. Quando a Fase~2 do
-fluxo do projeto (README) estiver pronta, os mesmos gráficos devem ser
-regerados a partir de \texttt{run\_scenario.m} com os cenários reais S1/S3, o
-que pode alterar os números (mas não deve alterar as conclusões qualitativas
-abaixo, já que a única diferença relevante é o controlador de fato usado).
+\paragraph{Metodologia.} Antes de avaliar os cinco estimadores na malha
+fechada completa e nos seis cenários S1--S6 (Seção~\ref{sec:ekf-ukf}), esta
+seção isola os três estimadores clássicos num teste controlado, implementado
+em \texttt{tests/test\_classical\_filters.m}, que (i) confere numericamente a
+linearização de \texttt{linearise\_upright.m} contra o Jacobiano analítico
+independente \texttt{jacobian\_f.m} — as duas linearizações, obtidas por
+caminhos independentes, batem a menos de $10^{-8}$; (ii) simula uma
+trajetória próxima ao cenário S1 (haste a $5^{\circ}$ da vertical) sob
+realimentação do \textbf{estado verdadeiro} ($u=-K_{demo}X$), usando o ganho
+$K$ já publicado na Seção~\ref{sec:matlab} — uma escolha deliberada para
+isolar o desempenho de cada estimador dos efeitos do controlador, retomada na
+discussão abaixo; e (iii) roda os três estimadores desta seção em paralelo
+sobre essa trajetória, com o ruído nominal e com o multiplicador $10\times$ do
+cenário S3.
 
 \paragraph{Resultados.} A Tabela~\ref{tab:rmse-classicos} e as
 Figuras~\ref{fig:s1-classicos-theta}--\ref{fig:classicos-rmse} resumem o que
@@ -1334,15 +1314,13 @@ Dois pontos merecem destaque — um deles contraria a expectativa ingênua de qu
 \end{itemize}
 
 Nenhum dos três estimadores desta seção foi testado acima no \emph{swing-up}
-(cenário~S2, ângulos grandes): no momento em que este experimento de
-demonstração foi montado, o controlador de \emph{swing-up} (Pessoa A) ainda
-era um \emph{placeholder}, e a realimentação usada acima é sobre o
-\textbf{estado verdadeiro} ($u=-K_{demo}X$), não sobre a estimativa — um
-recurso deliberado para poder testar os três filtros antes de o restante da
-malha estar pronto (\texttt{tests/test\_classical\_filters.m}). É precisamente
-no swing-up que a linearização por trás do KF deixa de valer; a comparação dos
-cinco estimadores nesse regime, com o harness completo e a malha fechada real
-($u=-K\hat X$ via \texttt{swingup.m}), está na Seção~\ref{sec:ekf-ukf}.
+(cenário~S2, ângulos grandes): a comparação acima usa deliberadamente a
+realimentação do \textbf{estado verdadeiro} ($u=-K_{demo}X$), e não da
+estimativa, para isolar o desempenho dos filtros dos efeitos do controlador
+antes de se avaliar a malha fechada por completo. É precisamente no swing-up
+que a linearização por trás do KF deixa de valer; a comparação dos cinco
+estimadores nesse regime, com a malha fechada real ($u=-K\hat X$ via
+\texttt{swingup.m}), está na Seção~\ref{sec:ekf-ukf}.
 
 \figplaceholder{results/S1\_classicos\_theta.png}{Ângulo $\theta$ estimado
 pelos três estimadores clássicos no cenário de demonstração (análogo a S1,
@@ -1357,31 +1335,25 @@ ruído $10\times$ (análogo a S1 \emph{vs.} S3). O complementar tem a maior
 degradação relativa; baseline e KF permanecem próximos em ambos os
 níveis.}{fig:classicos-rmse}
 
-\paragraph{Da demonstração à Fase 2.} A planta não-linear
-(\texttt{plant\_cartpole.m}), o sensor com \emph{dropout}/\emph{outliers}
-(\texttt{sensor\_model.m}), o LQR (\texttt{controller\_lqr.m}) e o
-\emph{swing-up} (\texttt{swingup.m}) — todos de responsabilidade da Pessoa A —
-estão hoje implementados e integrados por \texttt{run\_scenario.m}/\texttt{main.m}
+\paragraph{Da comparação isolada à malha fechada completa.} A planta
+não-linear (\texttt{plant\_cartpole.m}), o sensor com
+\emph{dropout}/\emph{outliers} (\texttt{sensor\_model.m}), o LQR
+(\texttt{controller\_lqr.m}) e o \emph{swing-up} (\texttt{swingup.m}) são
+integrados por \texttt{run\_scenario.m}/\texttt{main.m}
 (\texttt{src/main.m} roda os cinco estimadores nos seis cenários S1--S6 e
-salva \texttt{results/*.mat}), de modo que a Fase~2 do fluxo do projeto
-(README) está completa. A Seção~\ref{sec:ekf-ukf} apresenta os resultados
-dessa malha real — inclusive uma diferença importante em relação à
-demonstração acima: ali o ganho $K_{demo}$ realimentava o \textbf{estado
+salva \texttt{results/*.mat}). A Seção~\ref{sec:ekf-ukf} apresenta os
+resultados dessa malha real — inclusive uma diferença importante em relação à
+comparação isolada acima: ali o ganho $K_{demo}$ realimentava o \textbf{estado
 verdadeiro}; na malha real $u=-K\hat X$ realimenta a \textbf{estimativa}, de
 modo que um estimador ruim degrada o próprio controle (e não só o RMSE do
 estimador isolado) — o princípio da separação em ação, e não apenas em
 teoria.
 
 %=================================================================================================
-%   >>> [SEÇÃO B — FIM]
-%=================================================================================================
-
-%=================================================================================================
-%   SEÇÃO C — ESTIMADORES NÃO-LINEARES (EKF/UKF)
-%   Responsabilidade da Pessoa C (README: "EKF/UKF e análise de consistência" —
-%   arquivos jacobian_f.m, est_ekf.m, est_ukf.m). Resultados gerados pelo harness
-%   completo (src/main.m, Fase 2) sobre os seis cenários S1..S6, via
-%   tests/build_report_results.m, a partir de results/*.mat.
+%   ESTIMADORES NÃO-LINEARES (EKF/UKF)
+%   Resultados gerados pelo harness completo (src/main.m) sobre os seis
+%   cenários S1..S6, via tests/build_report_results.m, a partir de
+%   results/*.mat.
 %=================================================================================================
 \section{Estimadores de Estado Não-Lineares: EKF e UKF}
 \label{sec:ekf-ukf}
@@ -1580,8 +1552,8 @@ Todos os sete testes passam (\texttt{ALL TESTS PASSED}).
 \subsection{Resultados: divergência do KF fora do regime linear (\emph{swing-up}, S2)}
 \label{sec:resultados-naolineares}
 
-Com a Fase~2 completa (Seção~\ref{sec:sintese-classicos}), é possível rodar
-os cinco estimadores no cenário mais exigente: o \emph{swing-up} (S2), em que
+Com a malha fechada completa (Seção~\ref{sec:sintese-classicos}), é possível
+rodar os cinco estimadores no cenário mais exigente: o \emph{swing-up} (S2), em que
 a haste passa por $\theta\in(-\pi,\pi]$ antes de ser capturada pelo LQR —
 exatamente o regime para o qual a linearização do KF em $\theta=0$ não foi
 projetada.
@@ -1661,8 +1633,7 @@ S5 — $Q/R$ mal ajustados   &  0,63 & 15,16 &  0,29 & 0,29 & 0,27 \\
 S6 — Inicialização ruim    &  1,29 & 15,78 &  0,24 & 0,24 & 0,24 \\
 \hline
 \end{tabular}
-\caption{RMSE de $\theta$ (graus) por estimador e cenário, malha fechada real,
-Fase 2 completa.}
+\caption{RMSE de $\theta$ (graus) por estimador e cenário, malha fechada real.}
 \label{tab:rmse-final}
 \end{table}
 
