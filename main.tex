@@ -176,8 +176,8 @@ Ruído do encoder ($\theta$) & $\sigma_\theta$ & $0{,}005$~rad \\
     \fill (G) circle (4pt);                   % centro de massa
 
     % --- Aceleracao angular (theta ponto ponto) -------------------------
-    \draw[->, thick] ($(Top)+(0.35,0.05)$) arc[start angle=-20, end angle=60, radius=0.75];
-    \node at ($(Top)+(0.15,0.55)$) {$\ddot{\theta}$};
+    \draw[->, thick] ($(Top)+(0.35,0.05)$) arc[start angle=30, end angle=150, radius=0.55];
+    \node at ($(Top)+(0.0,0.65)$) {$\ddot{\theta}$};
 
     % --- Pseudo-forca m xddot no CM (aponta para tras, esquerda) --------
     \draw[force] (G) -- ++(-1.25,0);
@@ -195,8 +195,8 @@ Ruído do encoder ($\theta$) & $\sigma_\theta$ & $0{,}005$~rad \\
     \node[anchor=west] at ($(P)!0.35!(G)+(0.30,0)$) {$L$};
 
     % --- Angulo theta (entre vertical e haste, junto ao pivo) -----------
-    \draw[->, thick] ($(P)+(0,0.50)$) arc[start angle=90, end angle=\rodang, radius=0.50];
-    \node at ($(P)+(-0.16,0.34)$) {$\theta$};
+    \draw[->, thick] ($(P)+(0,1.20)$) arc[start angle=90, end angle=\rodang, radius=1.20];
+    \node at ($(P)+(-0.16,1.54)$) {$\theta$};
 
     % --- Reacao horizontal no pivo Fx (rotulo abaixo da seta, no carrinho)
     \draw[force, azul] (P) -- ++(-1.05,0);
