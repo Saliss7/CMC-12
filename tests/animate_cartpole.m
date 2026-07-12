@@ -165,11 +165,23 @@ function draw_cartpole(ax, x, theta, L, cart_w, cart_h, color, ls, lw)
     % Cart body
     rectangle(ax, 'Position', [x-cart_w/2, -cart_h/2, cart_w, cart_h], ...
                'EdgeColor', color, 'LineStyle', ls, 'LineWidth', lw);
-    % Pole: theta measured from upward vertical
-    tip_x = x + 2*L*sin(theta);
-    tip_y = 0 + 2*L*cos(theta);
-    plot(ax, [x, tip_x], [0, tip_y], 'Color', color, 'LineStyle', ls, 'LineWidth', lw);
-    plot(ax, tip_x, tip_y, 'o', 'Color', color, 'MarkerFaceColor', color, 'MarkerSize', 6);
+
+    % Pole: a thick uniform rod (physical pendulum), not a point mass on a
+    % string — matches p.I = m*L^2/3 in params.m. theta measured from
+    % upward vertical; rod runs from the pivot (x,0) to the tip
+    % (x + 2L sin theta, 2L cos theta).
+    rod_len = 2*L;
+    rod_w   = 0.05;
+    ct = cos(theta); st = sin(theta);
+    a = [-rod_w/2, rod_w/2, rod_w/2, -rod_w/2];
+    b = [0, 0, rod_len, rod_len];
+    xs = x + a*ct + b*st;
+    ys = -a*st + b*ct;
+    patch(ax, xs, ys, color, 'FaceAlpha', 0.35, 'EdgeColor', color, ...
+          'LineStyle', ls, 'LineWidth', lw);
+
+    % Pivot hinge
+    plot(ax, x, 0, 'o', 'Color', color, 'MarkerFaceColor', color, 'MarkerSize', 4);
 end
 
 function v = getfield_default(s, field, default)

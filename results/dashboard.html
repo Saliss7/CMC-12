@@ -555,16 +555,31 @@
     var cy0 = sy(ch / 2), cy1 = sy(-ch / 2);
     ctx.strokeRect(cx0, cy0, cx1 - cx0, cy1 - cy0);
 
-    // pole
-    var tipX = x + 2 * L * Math.sin(theta);
-    var tipY = 2 * L * Math.cos(theta);
+    // pole: a thick uniform rod (physical pendulum), not a point mass on a
+    // string — matches p.I = m*L^2/3 in params.m. Rod runs from the pivot
+    // (x, 0) to the tip (x + 2L sin theta, 2L cos theta).
+    var rodLen = 2 * L, rodW = 0.05;
+    var ct = Math.cos(theta), st = Math.sin(theta);
+    var as = [-rodW / 2, rodW / 2, rodW / 2, -rodW / 2];
+    var bs = [0, 0, rodLen, rodLen];
+    ctx.setLineDash([]);
+    ctx.globalAlpha = alpha * 0.5;
     ctx.beginPath();
-    ctx.moveTo(sx(x), sy(0));
-    ctx.lineTo(sx(tipX), sy(tipY));
+    for (var i = 0; i < 4; i++) {
+      var wx = x + as[i] * ct + bs[i] * st;
+      var wy = -as[i] * st + bs[i] * ct;
+      if (i === 0) ctx.moveTo(sx(wx), sy(wy)); else ctx.lineTo(sx(wx), sy(wy));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = alpha;
+    if (dashed) ctx.setLineDash([4, 3]);
     ctx.stroke();
+
+    // pivot hinge
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.arc(sx(tipX), sy(tipY), 4, 0, Math.PI * 2);
+    ctx.arc(sx(x), sy(0), 3, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
