@@ -38,6 +38,7 @@
 }
 
 \begin{document}
+\shorthandoff{"}
 
 %-----------------------------------------------------------------------------------------------
 %       CABEÇALHO
@@ -1385,23 +1386,19 @@ teoria.
 \section{Estimadores de Estado Não-Lineares: EKF e UKF}
 \label{sec:ekf-ukf}
 
-O KF linear (Seção~\ref{sec:kf-linear}) é ótimo \emph{dado} o modelo
-$(A_d,B_d,C_d)$, mas esse modelo é uma linearização fixa em torno de um único
-ponto de operação, $\theta=0$. Fora da vizinhança da vertical — precisamente o
-regime do \emph{swing-up} (Seção~\ref{sec:sensores}, cenário S2) — a dinâmica
-verdadeira do cart-pole diverge da dinâmica linear, e nada garante que o KF
-continue sequer estável, muito menos ótimo. Esta seção trata os dois
-estimadores que lidam com a não-linearidade explicitamente: o \textbf{Filtro
-de Kalman Estendido} (EKF), que relineariza a cada passo em torno da própria
-estimativa corrente, e o \textbf{Filtro de Kalman Unscented} (UKF), que
-dispensa qualquer linearização analítica e propaga a incerteza por meio de um
-conjunto determinístico de pontos (\emph{sigma points}) através do modelo
-não-linear exato. Os dois seguem a mesma interface \emph{drop-in} das seções
-anteriores,
+O KF linear (Seção~\ref{sec:kf-linear}) é ótimo apenas em torno do ponto de
+linearização $\theta=0$; fora dessa vizinhança — o regime do
+\emph{swing-up} (Seção~\ref{sec:sensores}, cenário S2) — nada garante sequer
+sua estabilidade. Esta seção trata os dois estimadores que lidam com a
+não-linearidade diretamente: o \textbf{Filtro de Kalman Estendido} (EKF), que
+relineariza a cada passo em torno da estimativa corrente, e o \textbf{Filtro
+de Kalman Unscented} (UKF), que propaga a incerteza por um conjunto
+determinístico de pontos (\emph{sigma points}) através do modelo não-linear
+exato, sem linearização analítica. Ambos seguem a mesma interface
+\emph{drop-in} das seções anteriores,
 $[\hat X_k,\,P_k] = \texttt{estimator\_update}(\hat X_{k-1},\,P_{k-1},\,z_k,\,u_k,\,p)$,
-e ambos expõem opcionalmente um terceiro argumento de saída
-$\texttt{dbg} = (\nu_k, S_k)$ com a inovação e sua covariância, usado pelo
-teste de consistência NIS em \texttt{compute\_metrics.m}.
+e retornam opcionalmente $\texttt{dbg} = (\nu_k, S_k)$ para o teste de
+consistência NIS em \texttt{compute\_metrics.m}.
 
 \subsection{Filtro de Kalman Estendido (EKF)}
 \label{sec:ekf}
@@ -1409,22 +1406,17 @@ teste de consistência NIS em \texttt{compute\_metrics.m}.
 \subsubsection{Jacobiano analítico}
 
 O EKF precisa, a cada passo, de uma aproximação linear local da dinâmica em
-torno da estimativa corrente $\hat X_{k-1}$. Em vez de linearizar apenas uma
+torno da estimativa corrente $\hat X_{k-1}$. Em vez de linearizar uma única
 vez (como em~\ref{sec:linearizacao}), \texttt{jacobian\_f.m} calcula
-$F=\partial f/\partial X$ \textbf{analiticamente, em qualquer estado}, reaproveitando a
-mesma solução do sistema $2\times2$ de \texttt{plant\_cartpole.m}
-(Seção~\ref{sec:linearizacao}, $\Delta=aJ-h^2$) e aplicando a regra do
-quociente às expressões de $\ddot x$ e $\ddot\theta$. Como a dinâmica não
-depende de $x$ (invariância translacional, já observada na
-Seção~\ref{sec:zoh}), a primeira coluna de $F$ é sempre $[0,1,0,0]^{\mathsf T}$/nula
-conforme a linha; o restante ($F_{2,2}$, $F_{2,3}$, $F_{2,4}$, $F_{4,2}$,
-$F_{4,3}$, $F_{4,4}$) é avaliado em $(\hat x_2,\hat x_3,\hat x_4,u)$ a cada
-chamada. A corretude desse Jacobiano é verificada numericamente
-(Seção~\ref{sec:ekf-verificacao}) contra diferenças finitas centrais da
-própria \texttt{plant\_cartpole.m} — e, de forma independente, contra a
-linearização de \texttt{linearise\_upright.m} no ponto $\theta=0$
-(Seção~\ref{sec:sintese-classicos}), já que as duas foram derivadas
-separadamente pelas Pessoas B e C a partir das mesmas equações de movimento.
+$F=\partial f/\partial X$ \textbf{analiticamente, em qualquer estado},
+reaproveitando a mesma solução do sistema $2\times2$ de
+\texttt{plant\_cartpole.m} ($\Delta=aJ-h^2$, Seção~\ref{sec:linearizacao}) e
+aplicando a regra do quociente às expressões de $\ddot x$ e $\ddot\theta$.
+Como a dinâmica não depende de $x$, a coluna correspondente de $F$ é sempre
+nula; o restante é avaliado em $(\hat x_2,\hat x_3,\hat x_4,u)$ a cada
+chamada. A corretude é verificada contra diferenças finitas centrais e contra
+a linearização de \texttt{linearise\_upright.m} em $\theta=0$
+(Seção~\ref{sec:ekf-verificacao}).
 
 \subsubsection{Predição: integração não-linear + covariância linearizada localmente}
 
@@ -1437,8 +1429,8 @@ completa} (RK4, mesmo integrador da planta verdadeira) para propagar a média:
 \]
 
 e usa o Jacobiano \emph{congelado} em $\hat X_{k-1}$, discretizado pela mesma
-exponencial de matriz da Seção~\ref{sec:zoh} (aqui sem termo de entrada, já que
-só a covariância é propagada dessa forma),
+exponencial de matriz da Seção~\ref{sec:zoh} (sem termo de entrada, pois só a
+covariância é propagada dessa forma):
 
 \[
 F = \texttt{jacobian\_f}(\hat X_{k-1}, u_{k-1}, p),
@@ -1448,19 +1440,17 @@ F_d = e^{F\Delta t},
 P_k^{-} = F_d\,P_{k-1}\,F_d^{\mathsf T} + Q.
 \]
 
-A média, portanto, segue a física exata (sem erro de linearização acumulado);
-só a incerteza é propagada por uma aproximação linear local — e essa
-aproximação é \textbf{recalculada a cada passo} no ponto atual, ao contrário
-do $(A_d,B_d)$ fixo do KF. É essa relinearização contínua que permite ao EKF
-acompanhar o \emph{swing-up} sem perder a estimativa, como mostrado na
-Seção~\ref{sec:resultados-naolineares}.
+A média segue a física exata; só a incerteza usa uma aproximação linear
+local, \textbf{recalculada a cada passo} no ponto atual (ao contrário do
+$(A_d,B_d)$ fixo do KF) — é essa relinearização contínua que permite ao EKF
+acompanhar o \emph{swing-up} sem perder a estimativa
+(Seção~\ref{sec:resultados-naolineares}).
 
 \subsubsection{Atualização}
 
-O modelo de medição continua exato e linear ($z=CX$, mesma matriz $C$ da
-Seção~\ref{sec:kf-linear}, já que só posições são observadas), de modo que a
-atualização tem a mesma forma do KF, na forma de Joseph (numericamente
-estável, adotada também pelo KF linear — Seção~\ref{sec:kf-algoritmo}):
+O modelo de medição continua linear ($z=CX$, mesma matriz $C$ da
+Seção~\ref{sec:kf-linear}), de modo que a atualização tem a mesma forma do
+KF, na forma de Joseph (Seção~\ref{sec:kf-algoritmo}):
 
 \[
 S_k = C P_k^{-} C^{\mathsf T} + R,
@@ -1475,47 +1465,38 @@ K_k = P_k^{-} C^{\mathsf T} S_k^{-1},
 P_k = (I-K_kC)\,P_k^{-}(I-K_kC)^{\mathsf T} + K_k R K_k^{\mathsf T}.
 \]
 
-Quando a medição é perdida (\emph{dropout}, S4 — sinalizada por
-$z_k=[\mathrm{NaN},\mathrm{NaN}]^{\mathsf T}$), o EKF pula a atualização e
-retorna $(\hat X_k^{-}, P_k^{-})$: a mesma convenção de predição-pura adotada
-pelo KF linear e pelos estimadores clássicos (Seção~\ref{sec:sensores}).
+Em \emph{dropout} (S4, $z_k=[\mathrm{NaN},\mathrm{NaN}]^{\mathsf T}$), o EKF
+pula a atualização e retorna $(\hat X_k^{-}, P_k^{-})$, a mesma convenção dos
+demais estimadores (Seção~\ref{sec:sensores}).
 
 \subsection{Filtro de Kalman Unscented (UKF)}
 \label{sec:ukf}
 
 \subsubsection{Motivação: aproximar a distribuição, não a função}
 
-O EKF resolve a não-linearidade linearizando a \emph{função} de transição a
-cada passo — uma aproximação de primeira ordem (série de Taylor truncada) que
-descarta termos de ordem $\geq 2$. Quando a dinâmica é fortemente não-linear
-num único passo de integração (curvatura grande de $f$ na vizinhança de
-$\hat X_{k-1}$), esse truncamento introduz um viés que se acumula. A ideia do
-UKF~\cite{julieruhlmann1997, wan2000}, ao contrário, é que é mais fácil
-aproximar uma \textbf{distribuição de probabilidade} do que uma
-\textbf{função} não-linear arbitrária: em vez de linearizar $f$, escolhe-se
+O EKF lineariza a função de transição a cada passo — uma aproximação de
+primeira ordem que descarta termos de ordem $\geq 2$ e introduz viés quando a
+curvatura de $f$ é grande. O UKF~\cite{julieruhlmann1997, wan2000} aproxima,
+em vez disso, a \textbf{distribuição de probabilidade}: escolhe-se
 deterministicamente um pequeno conjunto de pontos (\emph{sigma points}) que
 reproduzem exatamente a média e a covariância de $\hat X_{k-1}$, propaga-se
-\textbf{cada um deles pela dinâmica não-linear exata} (a mesma
-\texttt{plant\_cartpole.m}/RK4 usada pela planta verdadeira, sem
-aproximação alguma), e reconstrói-se a média e a covariância a posteriori a
-partir dos pontos já transformados. O resultado é exato até 2ª ordem da série
-de Taylor da média (3ª ordem se a distribuição de entrada for gaussiana), uma
-ordem a mais que o EKF, e sem exigir nenhum Jacobiano.
+cada um deles pela dinâmica não-linear exata (RK4, sem aproximação alguma), e
+reconstrói-se a média e a covariância a posteriori a partir dos pontos
+transformados. O resultado é exato até 2ª ordem de Taylor da média (3ª se a
+entrada for gaussiana), uma ordem a mais que o EKF, sem exigir Jacobiano.
 
 \subsubsection{Sigma points e pesos (transformada \emph{unscented} escalonada)}
 
 A implementação (\texttt{est\_ukf.m}) segue a forma escalonada de Van der
-Merwe~\cite{wan2000}. Para um estado de dimensão $n=4$, três parâmetros de
-ajuste controlam a dispersão dos pontos: $\alpha$ (tipicamente pequeno,
-$10^{-3}$, controla o espalhamento em torno da média), $\beta$ (incorpora
-conhecimento prévio sobre a distribuição; $\beta=2$ é ótimo para gaussianas) e
-$\kappa$ (parâmetro secundário de escala, geralmente $0$). Define-se
+Merwe~\cite{wan2000}. Para $n=4$, três parâmetros controlam a dispersão:
+$\alpha$ (tipicamente $10^{-3}$), $\beta$ ($=2$ é ótimo para gaussianas) e
+$\kappa$ (geralmente $0$), com
 
 \[
-\lambda = \alpha^2(n+\kappa) - n,
+\lambda = \alpha^2(n+\kappa) - n.
 \]
 
-e os $2n+1=9$ \emph{sigma points} são a média mais/menos as colunas da raiz de
+Os $2n+1=9$ \emph{sigma points} são a média mais/menos as colunas da raiz de
 Cholesky da covariância escalada,
 
 \[
@@ -1525,7 +1506,7 @@ Cholesky da covariância escalada,
 \quad i=1,\dots,n,
 \]
 
-com pesos de média e de covariância
+com pesos
 
 \[
 W_0^{(m)} = \frac{\lambda}{n+\lambda}, \qquad
@@ -1533,10 +1514,8 @@ W_0^{(c)} = \frac{\lambda}{n+\lambda} + (1-\alpha^2+\beta), \qquad
 W_i^{(m)} = W_i^{(c)} = \frac{1}{2(n+\lambda)}\ \ (i\geq1).
 \]
 
-Se a fatoração de Cholesky de $P_{k-1}$ falhar (não positiva-definida, o que
-pode ocorrer numericamente sob covariâncias iniciais extremas como no cenário
-S6), o código regulariza somando $10^{-6}I$ antes de tentar novamente
-(\texttt{est\_ukf.m}).
+Se a fatoração de Cholesky de $P_{k-1}$ falhar (S6), o código regulariza
+somando $10^{-6}I$ antes de tentar novamente.
 
 \subsubsection{Predição}
 
@@ -1555,14 +1534,12 @@ P_k^{-} = Q + \sum_{i=0}^{2n} W_i^{(c)}\big(\mathcal{X}_i^{-}-\hat X_k^{-}\big)\
 
 \subsubsection{Atualização}
 
-Em geral, o UKF propagaria os \emph{sigma points} também através do modelo de
-\textbf{medição} $h(\cdot)$ para lidar com sensores não-lineares. Aqui,
-porém, $h(X)=CX$ é \textbf{linear} (só posições são observadas — mesma matriz
-$C$ do KF/EKF), de modo que propagar os pontos por $h$ e recombinar
-produziria \emph{exatamente} $C P_k^{-} C^{\mathsf T}+R$ — o mesmo resultado
-que a forma fechada do KF, sem nenhuma perda de precisão. A implementação
-explora essa igualdade algébrica diretamente (mais barato, sem reamostrar os
-pontos):
+Em geral, o UKF propagaria os \emph{sigma points} também pelo modelo de
+medição $h(\cdot)$. Aqui, porém, $h(X)=CX$ é \textbf{linear} (mesma matriz
+$C$ do KF/EKF), de modo que propagar os pontos por $h$ produziria
+\emph{exatamente} $C P_k^{-} C^{\mathsf T}+R$ — o mesmo resultado da forma
+fechada do KF. A implementação explora essa igualdade diretamente, sem
+reamostrar:
 
 \[
 S_k = C P_k^{-} C^{\mathsf T} + R, \qquad
@@ -1574,40 +1551,28 @@ K_k = P_k^{-} C^{\mathsf T} S_k^{-1}, \qquad
 P_k = (I-K_kC)\,P_k^{-}.
 \]
 
-Diferentemente do KF e do EKF, esta última atualização \emph{não} usa a forma
-de Joseph — como a álgebra acima é exata (não há linearização nesta etapa,
-$h$ já é linear), o ganho de estabilidade numérica da forma de Joseph é menor
-aqui; ainda assim, adotá-la uniformemente nos três filtros seria uma
-simplificação de manutenção razoável para trabalhos futuros. O caso de
-medição perdida (\emph{dropout}) segue a mesma convenção dos demais
+Diferentemente do KF e do EKF, esta atualização não usa a forma de Joseph —
+como a álgebra é exata ($h$ já é linear), o ganho de estabilidade numérica é
+menor aqui. O caso de \emph{dropout} segue a mesma convenção dos demais
 estimadores: sem atualização, retorna-se $(\hat X_k^{-},P_k^{-})$.
 
 \subsection{Verificação numérica}
 \label{sec:ekf-verificacao}
 
-\texttt{tests/test\_nonlinear\_filters.m} valida três propriedades antes de
-qualquer resultado de desempenho ser levado a sério:
+\texttt{tests/test\_nonlinear\_filters.m} valida três propriedades:
 
 \begin{enumerate}
   \item \textbf{Jacobiano analítico \emph{vs.} diferença finita central.}
-  Para seis valores de $\theta$ (incluindo $0$, $\pm\pi/4$, $\pm\pi/2$ e
-  $\pi$), o erro máximo entre \texttt{jacobian\_f.m} e uma diferença finita
-  central de \texttt{plant\_cartpole.m} (passo $h=10^{-6}$) foi
-  $2{,}51\times10^{-9}$, muito abaixo da tolerância de $10^{-6}$ — confirma
-  que a álgebra do Jacobiano (regra do quociente aplicada a $\ddot x,
-  \ddot\theta$) está correta em todo o domínio de $\theta$, não só perto da
-  vertical.
-  \item \textbf{\emph{Smoke tests} de numérica.} Ambos os filtros, em duas
-  trajetórias sintéticas (oscilação amortecida perto de $\theta=\pi$ e um
-  balanço violento de laço aberto), mantiveram $\hat X$ e $P$ finitos, $P$
-  simétrica e positiva-semidefinida (via \texttt{chol}) em todos os passos, e
-  o erro nos estados observados ($x,\theta$) permaneceu perto do piso de
-  ruído do encoder mesmo atravessando medições perdidas (\emph{dropout}) sem
+  Para seis valores de $\theta$ (incluindo $0$, $\pm\pi/2$ e $\pi$), o erro
+  máximo entre \texttt{jacobian\_f.m} e diferença finita central de
+  \texttt{plant\_cartpole.m} foi $2{,}51\times10^{-9}$, abaixo da tolerância
+  de $10^{-6}$ em todo o domínio de $\theta$.
+  \item \textbf{\emph{Smoke tests}.} Em duas trajetórias sintéticas, $\hat X$
+  e $P$ permanecem finitos e $P$ simétrica positiva-semidefinida (via
+  \texttt{chol}) em todos os passos, mesmo atravessando \emph{dropout}, sem
   produzir \texttt{NaN}/\texttt{Inf}.
-  \item \textbf{Interface.} As duas chamadas — com e sem o terceiro argumento
-  de depuração \texttt{dbg} — funcionam; \texttt{dbg} tem o formato esperado
-  ($\nu\in\mathbb{R}^2$, $S\in\mathbb{R}^{2\times2}$) e vem vazio quando a
-  medição é perdida (sem atualização, sem inovação a reportar).
+  \item \textbf{Interface.} Chamadas com e sem o argumento de depuração
+  \texttt{dbg} funcionam; \texttt{dbg} vem vazio quando a medição é perdida.
 \end{enumerate}
 
 Todos os sete testes passam (\texttt{ALL TESTS PASSED}).
@@ -1615,12 +1580,11 @@ Todos os sete testes passam (\texttt{ALL TESTS PASSED}).
 \subsection{Resultados: divergência do KF fora do regime linear (\emph{swing-up}, S2)}
 \label{sec:resultados-naolineares}
 
-Com a Fase~2 completa (planta, sensor, controlador e harness da Pessoa A —
-Seção~\ref{sec:sintese-classicos}), é possível finalmente rodar os cinco
-estimadores no cenário que mais importa para este trabalho: o \emph{swing-up}
-(S2), em que a haste passa por $\theta\in(-\pi,\pi]$ antes de ser capturada
-pelo LQR — exatamente o regime para o qual a linearização do KF em
-$\theta=0$ não foi projetada.
+Com a Fase~2 completa (Seção~\ref{sec:sintese-classicos}), é possível rodar
+os cinco estimadores no cenário mais exigente: o \emph{swing-up} (S2), em que
+a haste passa por $\theta\in(-\pi,\pi]$ antes de ser capturada pelo LQR —
+exatamente o regime para o qual a linearização do KF em $\theta=0$ não foi
+projetada.
 
 \figplaceholder{results/S2\_swingup\_theta.png}{Ângulo $\theta$ verdadeiro
 \emph{vs.} estimado pelos cinco estimadores durante o \emph{swing-up} completo
@@ -1669,23 +1633,18 @@ linearizado errado deixa de fazer sentido físico.}
 O KF linear \textbf{não é apenas pior}: ele diverge de forma \emph{otimista}
 — sua própria covariância $P$ relata confiança crescente exatamente quando o
 erro real explode (Figura~\ref{fig:s2-nees}), o que o tornaria perigoso numa
-malha real caso alguém confiasse em $P$ para, por exemplo, decidir quando é
-seguro comutar para o LQR. O baseline (sem modelo algum) surpreendentemente
-não diverge tão mal quanto o KF: por não ter um modelo linearizado a
-"proteger", ele simplesmente segue a medição filtrada, o que é ruim (RMSE
-$9{,}75^{\circ}$) mas nunca catastrófico. Esse é precisamente o argumento da
-Introdução do relatório: o KF linear compensa \emph{apenas} no regime
+malha real. O baseline, sem modelo algum a "proteger", simplesmente segue a
+medição filtrada — ruim (RMSE $9{,}75^{\circ}$) mas nunca catastrófico. Fica
+confirmado o argumento da Introdução: o KF linear compensa apenas no regime
 quase-linear; fora dele, um modelo \emph{errado} pode ser pior que nenhum
-modelo, e é exatamente aí que EKF e UKF — que carregam o modelo não-linear
-\textbf{correto} — se destacam.
+modelo, e é aí que EKF e UKF, com o modelo não-linear correto, se destacam.
 
 \subsection{Síntese comparativa final: cinco estimadores, seis cenários}
 \label{sec:sintese-final}
 
-A Tabela~\ref{tab:rmse-final} reúne o RMSE de $\theta$ para todos os cinco
-estimadores em todos os seis cenários (dados gerados por
-\texttt{src/main.m} + \texttt{tests/build\_report\_results.m}, a partir da
-malha fechada real, $u=-K\hat X$/\emph{swing-up} via \texttt{swingup.m}).
+A Tabela~\ref{tab:rmse-final} reúne o RMSE de $\theta$ para os cinco
+estimadores nos seis cenários (malha fechada real, $u=-K\hat X$/\emph{swing-up}
+via \texttt{swingup.m}).
 
 \begin{table}[H]
 \centering
@@ -1710,66 +1669,40 @@ Fase 2 completa.}
 Alguns pontos, além do já discutido S2:
 
 \begin{itemize}
-  \item \textbf{EKF e UKF praticamente empatados em todos os cenários} —
-  esperado, já que o modelo de medição é linear (Seção~\ref{sec:ukf}): a
-  única diferença estrutural entre os dois está em como cada um propaga a
-  \textbf{predição} não-linear, e no regime deste projeto (pêndulo de haste
-  única, poucos graus de liberdade) essa diferença raramente é decisiva. A
-  vantagem do UKF aparece exatamente onde a curvatura de $f$ é maior dentro de
-  um único passo — o \emph{swing-up} (S2) —, onde tira uma pequena vantagem
-  sobre o EKF ($0{,}23^{\circ}$ \emph{vs.} $0{,}24^{\circ}$; mais nítida em
-  $\dot\theta$, Tabela~\ref{tab:s2-swingup}).
+  \item \textbf{EKF e UKF praticamente empatados} em todos os cenários, já
+  que o modelo de medição é linear (Seção~\ref{sec:ukf}): a diferença está só
+  em como cada um propaga a predição não-linear, e raramente é decisiva neste
+  projeto. A vantagem do UKF aparece no \emph{swing-up} (S2), onde tira
+  pequena vantagem sobre o EKF ($0{,}23^{\circ}$ \emph{vs.} $0{,}24^{\circ}$;
+  mais nítida em $\dot\theta$, Tabela~\ref{tab:s2-swingup}).
 
-  \item \textbf{S1, S4, S5, S6 (regime quase-linear): os quatro estimadores
-  "com modelo" convergem para desempenho semelhante.} Fora do \emph{swing-up},
-  a vizinhança da vertical é onde a linearização do KF vale, então KF, EKF e
-  UKF ficam a poucos centésimos de grau uns dos outros — o EKF/UKF não
-  "perdem" nada por levar um modelo mais caro quando a situação não exige.
+  \item \textbf{Regime quase-linear (S1, S4, S5, S6):} KF, EKF e UKF
+  convergem para desempenho semelhante, a poucos centésimos de grau um do
+  outro — EKF/UKF não perdem nada por levar um modelo mais caro quando a
+  situação não exige.
 
-  \item \textbf{S5 (mistuned $Q/R$) afeta os três "com modelo" igualmente.}
-  Como os três compartilham por padrão as mesmas covariâncias \texttt{p.Q}/\texttt{p.R}
-  (salvo \emph{override} \texttt{p.Q\_ekf}/\texttt{p.R\_ekf} etc.,
-  Tabela~\ref{tab:params-qr}), o NEES médio sobe de forma quase idêntica para
-  os três em S5 (KF $19{,}19$, EKF $19{,}66$, UKF $18{,}29$, todos acima do
-  limite $\chi^2_4$ de $11{,}14$) — confirma que a inconsistência estatística
-  em S5 é uma propriedade do \textbf{ajuste de $Q/R$}, não do tipo de
-  estimador: nenhuma sofisticação de modelo compensa uma covariância
-  informada errada ao filtro.
+  \item \textbf{S5 ($Q/R$ mal ajustados) afeta os três "com modelo" igualmente:}
+  NEES médio sobe de forma quase idêntica (KF $19{,}19$, EKF
+  $19{,}66$, UKF $18{,}29$, todos acima do limite $\chi^2_4$ de $11{,}14$) —
+  a inconsistência é uma propriedade do ajuste de $Q/R$, não do tipo de
+  estimador.
 
-  \item \textbf{Anomalia pontual: $\dot\theta$ do UKF em S6.} No cenário de
-  inicialização ruim (prior $30^{\circ}$ fora da verdade, $P_0=100I$), o RMSE
-  de $\dot\theta$ do UKF sobe para $0{,}236$~rad/s — bem acima do EKF
-  ($0{,}026$) e do KF ($0{,}045$), embora o RMSE de $\theta$ permaneça
-  idêntico aos outros ($0{,}24^{\circ}$). O sintoma aparece só na velocidade
-  angular, não observada diretamente, e é consistente com um transiente nos
-  primeiros passos: com $P_0$ tão grande, os \emph{sigma points} iniciais se
-  espalham por uma região onde a dinâmica RK4 de um passo já não é bem
-  resumida pela média e covariância ponderadas (a própria motivação do UKF —
-  Seção~\ref{sec:ukf} — é mais precisa quanto mais suave for $f$ dentro do
-  espalhamento amostrado). O efeito não compromete a conclusão geral (o RMSE
-  de $\theta$ e a convergência global não são afetados) mas é um bom
-  candidato a investigação futura, por exemplo variando $\alpha$/$\kappa$
-  especificamente para $P_0$ grandes.
+  \item \textbf{Anomalia pontual em S6:} sob inicialização ruim ($P_0=100I$),
+  o RMSE de $\dot\theta$ do UKF sobe para $0{,}236$~rad/s (EKF $0{,}026$, KF
+  $0{,}045$), embora o RMSE de $\theta$ permaneça idêntico ($0{,}24^{\circ}$)
+  — provável transiente nos \emph{sigma points} iniciais, espalhados demais
+  para a dinâmica RK4 de um passo. Não compromete a conclusão geral; bom
+  candidato a investigação futura.
 
-  \item \textbf{Tempo de convergência ($t_{converge}$) é uma métrica frágil
-  perto do limiar de tolerância.} Em S3 (ruído alto), o KF converge em
-  $3{,}26$~s enquanto EKF e UKF aparecem como \texttt{NaN} (nunca convergem
-  dentro dos 10~s simulados) — apesar de RMSE de $\theta$ \textbf{comparável
-  ou melhor} nos três ($1{,}06^{\circ}$, $1{,}17^{\circ}$ e $1{,}09^{\circ}$,
-  respectivamente). A explicação está no RMSE de $\dot\theta$, muito próximo
-  da própria tolerância de convergência ($0{,}10$~rad/s):
-  \texttt{compute\_metrics.m} exige que \textbf{todos} os quatro estados
-  fiquem simultaneamente dentro da tolerância por uma janela contínua de 1~s;
-  quando o RMSE de um canal está colado no limiar, um único passo ruidoso
-  acima do limite reinicia a janela, e se nenhuma janela de 1~s inteiramente
-  limpa ocorrer nos 10~s de simulação o resultado é \texttt{NaN} — não porque
-  o filtro "não convergiu" no sentido usual, mas porque o critério binário é
-  sensível à sorte da realização de ruído perto da fronteira. O mesmo motivo
-  explica por que baseline e complementar quase nunca convergem por este
-  critério (Tabela~\ref{tab:rmse-final}, RMSE de $\dot\theta$ tipicamente
-  acima de $0{,}10$~rad/s mesmo em S1): a diferenciação numérica amplifica
-  ruído de medição exatamente no canal de velocidade que a métrica exige
-  controlar.
+  \item \textbf{$t_{converge}$ é uma métrica frágil perto do limiar.} Em S3,
+  o KF converge em $3{,}26$~s enquanto EKF/UKF aparecem como \texttt{NaN},
+  apesar de RMSE de $\theta$ comparável ou melhor nos três. A causa é o RMSE
+  de $\dot\theta$ colado na tolerância de convergência ($0{,}10$~rad/s):
+  \texttt{compute\_metrics.m} exige todos os quatro estados dentro da
+  tolerância por 1~s contínuo, e um único passo acima do limite reinicia a
+  janela — sensível à sorte da realização de ruído perto da fronteira. O
+  mesmo explica por que baseline e complementar quase nunca convergem por
+  este critério.
 \end{itemize}
 
 \figplaceholder{results/cpu\_time.png}{Custo computacional médio por
@@ -1783,17 +1716,13 @@ da dinâmica não-linear por passo, além da fatoração de Cholesky.}
 {fig:cpu-time}
 
 Em termos absolutos (Figura~\ref{fig:cpu-time}), baseline e complementar
-custam ${\sim}1{,}3$--$1{,}5$~ms por execução completa (todo o cenário, não
-por passo); o KF, ${\sim}6{,}5$~ms ($5\times$ o baseline); o EKF,
-${\sim}42{,}8$~ms ($33\times$); e o UKF, ${\sim}88{,}6$~ms ($68\times$ o
-baseline, $2{,}1\times$ o próprio EKF — o preço de propagar $9$ pontos por
-RK4 em vez de $1$ Jacobiano analítico). Mesmo assim, o custo absoluto do UKF
-continua na casa de dezenas de milissegundos para uma simulação inteira de
-$10$--$15$~s a $100$~Hz: \textbf{em nenhum cenário deste projeto o custo
-computacional é proibitivo}, mas a razão de custo ($2\times$ EKF/UKF, $7$--$14\times$
-KF/baseline) seria o critério decisivo caso o alvo fosse um microcontrolador
-de malha rápida, onde o EKF ofereceria quase a mesma precisão do UKF (Tabela
-\ref{tab:rmse-final}) por metade do custo por passo.
+custam ${\sim}1{,}3$--$1{,}5$~ms por execução completa; o KF, ${\sim}6{,}5$~ms
+($5\times$); o EKF, ${\sim}42{,}8$~ms ($33\times$); e o UKF, ${\sim}88{,}6$~ms
+($68\times$ o baseline, $2{,}1\times$ o EKF — preço de propagar $9$ pontos
+por RK4 em vez de $1$ Jacobiano). Em nenhum cenário deste projeto o custo é
+proibitivo, mas a razão EKF/UKF seria o critério decisivo num
+microcontrolador de malha rápida, onde o EKF oferece quase a mesma precisão
+por metade do custo por passo.
 
 %=================================================================================================
 %   SEÇÃO C — FIM
@@ -1838,22 +1767,17 @@ separação). É neste ponto que se comparam os cinco estimadores.}
 \label{fig:malha}
 \end{figure}
 
-Dois aspectos merecem destaque na discussão. Primeiro, o
-\textbf{princípio da separação}: o controlador foi projetado supondo acesso ao
-estado, mas na prática opera sobre $\hat{X}$; a qualidade de cada estimador
-reflete-se diretamente no desempenho da malha, e é exatamente essa degradação
-que o trabalho quantifica. A Seção~\ref{sec:sintese-final} mostra essa
-degradação de forma concreta: com o estimador baseline ou o complementar, o
-próprio LQR — projetado e verificado como estável em~\ref{sec:matlab} —
-herda o erro de estimação e nunca alcança o desempenho da malha ideal; com
-KF/EKF/UKF no regime em que cada um é válido, a malha real se aproxima da
-malha com estado verdadeiro. Segundo, o \textbf{controlador de duas fases}:
-longe da vertical usa a lei não-linear de \emph{energy shaping} com o PD de
-carro; dentro da janela de captura comuta para o LQR linear. Assim, um único
-experimento leva os filtros por um regime fortemente não-linear (\emph{swing-up})
-e por um regime quase-linear (estabilização), evidenciando onde cada técnica de
-estimação compensa — o resultado mais nítido do trabalho sendo, precisamente,
-a divergência do KF linear e a robustez de EKF/UKF durante o \emph{swing-up}
+Dois aspectos merecem destaque. Primeiro, o \textbf{princípio da separação}:
+o controlador foi projetado supondo acesso ao estado, mas opera sobre
+$\hat{X}$; a Seção~\ref{sec:sintese-final} quantifica essa degradação — com
+baseline ou complementar, o LQR (estável por projeto,
+Seção~\ref{sec:matlab}) nunca alcança o desempenho da malha ideal, enquanto
+com KF/EKF/UKF no regime válido a malha real se aproxima da malha com estado
+verdadeiro. Segundo, o \textbf{controlador de duas fases} (energy shaping +
+PD longe da vertical, LQR na janela de captura) leva os filtros, num único
+experimento, por um regime fortemente não-linear e por um quase-linear —
+evidenciando onde cada técnica de estimação compensa, resultado mais nítido
+sendo a divergência do KF e a robustez de EKF/UKF durante o \emph{swing-up}
 (Seção~\ref{sec:resultados-naolineares}).
 
 \section*{Conclusão}
@@ -1866,35 +1790,26 @@ sobre carro. As conclusões centrais, sustentadas pelos seis cenários (S1--S6)
 rodados com o harness completo (\texttt{src/main.m}):
 
 \begin{itemize}
-  \item \textbf{O KF linear é ótimo apenas dentro da vizinhança onde foi
-  linearizado.} No regime quase-linear (estabilização, S1/S4/S5/S6) ele
-  empata com EKF/UKF; fora dele (\emph{swing-up}, S2) ele diverge de forma
-  \textbf{otimista} — a covariância relatada encolhe exatamente quando o erro
-  real explode (NEES $\sim\!2{,}5\times10^{5}$ contra um limite $\chi^2_4$ de
-  $11{,}14$) — o que o torna não apenas impreciso, mas estatisticamente
-  enganoso.
-  \item \textbf{EKF e UKF resolvem exatamente esse problema}, carregando o
-  modelo não-linear \emph{correto} (via Jacobiano \emph{online} ou
-  \emph{sigma points}) em vez de uma aproximação fixa: ambos mantêm RMSE de
-  $\theta$ abaixo de $0{,}25^{\circ}$ e NEES dentro da faixa esperada em
-  \textbf{todos} os seis cenários, inclusive o \emph{swing-up}. A diferença
-  entre os dois é pequena neste projeto (medição linear, poucos graus de
-  liberdade) — o UKF leva uma vantagem marginal em regimes fortemente
+  \item \textbf{O KF linear é ótimo apenas perto do ponto onde foi
+  linearizado.} Empata com EKF/UKF no regime quase-linear (S1/S4/S5/S6); no
+  \emph{swing-up} (S2) diverge de forma \textbf{otimista} — a covariância
+  relatada encolhe exatamente quando o erro real explode (NEES
+  $\sim\!2{,}5\times10^{5}$ contra o limite $\chi^2_4$ de $11{,}14$).
+  \item \textbf{EKF e UKF resolvem esse problema}, carregando o modelo
+  não-linear correto: RMSE de $\theta$ abaixo de $0{,}25^{\circ}$ e NEES
+  dentro da faixa esperada em todos os seis cenários. A diferença entre os
+  dois é pequena aqui; o UKF leva vantagem marginal em regimes fortemente
   não-lineares, ao custo de ${\sim}2\times$ o tempo de CPU do EKF.
-  \item \textbf{"Mais modelo" nem sempre significa "melhor"}: o filtro
-  complementar de ganho fixo é o pior estimador em praticamente todo cenário
-  testado, e mesmo o baseline sem modelo algum supera o KF linear divergente
-  no \emph{swing-up} — um lembrete de que um modelo \emph{errado} pode ser
-  pior do que nenhum modelo.
-  \item \textbf{O princípio da separação se verifica na prática, não só na
-  teoria}: o mesmo ganho LQR, estável por projeto (Seção~\ref{sec:matlab}),
-  produz malhas fechadas de qualidade muito diferente dependendo de qual
-  estimador alimenta $\hat X$ — a malha real degrada junto com o estimador, e
-  não apenas o RMSE do estimador isolado.
-  \item Testes de consistência estatística (NEES/NIS) revelaram uma falha que
-  o RMSE sozinho esconde: em $Q/R$ mal ajustados (S5), o RMSE quase não piora,
-  mas os três filtros baseados em modelo passam a relatar uma incerteza menor
-  que a real — só o teste $\chi^2$ expõe esse problema.
+  \item \textbf{"Mais modelo" nem sempre é melhor}: o filtro complementar é o
+  pior estimador em quase todo cenário, e o baseline sem modelo supera o KF
+  divergente no \emph{swing-up}.
+  \item \textbf{O princípio da separação se verifica na prática}: o mesmo
+  ganho LQR (estável por projeto, Seção~\ref{sec:matlab}) produz malhas de
+  qualidade muito diferente dependendo do estimador que alimenta $\hat X$.
+  \item Os testes de consistência (NEES/NIS) revelam o que o RMSE esconde: em
+  $Q/R$ mal ajustados (S5), o RMSE quase não piora, mas os filtros baseados
+  em modelo relatam incerteza menor que a real — só o teste $\chi^2$ expõe
+  isso.
 \end{itemize}
 
 Como trabalho futuro, ficam abertos: a recalibração de $Q$ pelo método de
