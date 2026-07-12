@@ -33,4 +33,9 @@ p.P0    = diag([0.1, 1, 0.1, 1]); % initial covariance
 p.Q = diag([1e-4, 1e-3, 1e-4, 1e-3]);   % process noise
 p.R = diag([p.sigma_x^2, p.sigma_theta^2]); % measurement noise
 
+% --- Discrete-time linearised model for est_kf.m (Pessoa B) ---
+% Populates p.Ad, p.Bd, p.Cd (ZOH discretisation about the upright
+% equilibrium); without this, est_kf.m errors out immediately.
+p = linearise_upright(p);
+
 end

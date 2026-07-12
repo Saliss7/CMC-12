@@ -1,0 +1,1491 @@
+\documentclass[brazil, 12pt]{article}
+
+\usepackage[portuguese]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[scale=0.8]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, calc, positioning}
+
+% Cores usadas na figura (para lembrar a caneta azul/vermelha da anotação)
+\definecolor{azul}{RGB}{0,80,200}
+\definecolor{vermelho}{RGB}{200,30,30}
+
+% Macro para deixar o lugar das figuras indicado sem quebrar a compilação
+% caso a imagem ainda não esteja na pasta do Overleaf.
+\newcommand{\figplaceholder}[3]{%
+\begin{figure}[H]
+    \centering
+    \IfFileExists{#1}{%
+        \includegraphics[width=0.75\linewidth]{#1}%
+    }{%
+        \fbox{%
+        \begin{minipage}[c][4.5cm][c]{0.75\linewidth}
+        \centering
+        \textbf{Inserir figura aqui}\par
+        \vspace{0.3cm}
+        Arquivo sugerido: \texttt{#1}
+        \end{minipage}}
+    }
+    \caption{#2}
+    \label{#3}
+\end{figure}
+}
+
+\begin{document}
+
+%-----------------------------------------------------------------------------------------------
+%       CABEÇALHO
+%-----------------------------------------------------------------------------------------------
+\begin{center}
+\textbf{Instituto Tecnológico de Aeronáutica - ITA} \\
+\textbf{Sistemas de Controle Contínuos e Discretos - CMC-12} \\
+\textbf{Aluno}: Matheus Felipe Ramos Borges
+\end{center}
+
+\begin{center}
+\textbf{Estudo Comparativo de Estimadores de Estado num Pêndulo Invertido sob
+Malha de Controle}
+\end{center}
+%-----------------------------------------------------------------------------------------------
+\vspace*{0.5cm}
+
+\section{Introdução}
+
+Este projeto implementa e compara, \textbf{dentro de uma malha de controle
+fechada}, diferentes técnicas de \textbf{estimação de estados} aplicadas a um
+\textbf{pêndulo invertido sobre carro} (\emph{cart-pole}) --- um sistema
+dinâmico não-linear e naturalmente instável.
+
+A motivação parte de uma lacuna do curso: em CMC-12 abordou-se apenas a
+\textbf{filtragem passa-baixas clássica}, sem estimação por espaço de estados.
+O trabalho avança sobre esse ponto confrontando quatro níveis de estimadores, do
+visto em aula ao estado da arte:
+
+\[
+\underbrace{\text{Diferenciação} + \text{passa-baixas}}_{\text{\emph{baseline} do curso}}
+\;\rightarrow\;
+\underbrace{\text{KF linear}}_{\text{linearizado}}
+\;\rightarrow\;
+\underbrace{\text{EKF}}_{\text{Jacobiano \emph{online}}}
+\;\rightarrow\;
+\underbrace{\text{UKF}}_{\text{\emph{sigma points}}}.
+\]
+
+O pêndulo invertido é escolhido justamente porque o controle opera em
+\textbf{duas fases} que exercitam os filtros em regimes distintos: o
+\emph{swing-up} (baseado em energia) leva a haste por \textbf{ângulos grandes},
+num regime fortemente não-linear onde o KF linear degrada e EKF/UKF se destacam;
+já a \emph{estabilização} (LQR na vertical) opera num regime quase-linear, onde
+todos os filtros convergem de forma semelhante. Assim, um único experimento
+evidencia \textbf{onde cada filtro compensa}.
+
+Quanto ao escopo, o estado é
+$X = [\,x\ \ \dot{x}\ \ \theta\ \ \dot{\theta}\,]^{\mathsf T}$ (posição e
+velocidade do carro; ângulo e velocidade angular da haste). Apenas as
+\textbf{posições} $x$ e $\theta$ são medidas, com ruído (encoders); as
+velocidades $\dot{x}$ e $\dot{\theta}$ são estimadas. O desempenho é avaliado por
+RMSE por estado, tempo de convergência, robustez (ruído alto, baixa taxa de
+amostragem, erro de sintonia de $Q/R$, má inicialização), consistência
+estatística (NEES/NIS) e custo computacional, comparando ainda a malha fechada
+com estado estimado \emph{vs.} estado ideal (princípio da separação na prática).
+
+\subsection{Parâmetros adotados}
+
+Todas as constantes físicas e de simulação são centralizadas em
+\texttt{params.m} (fonte única de verdade) e resumidas na
+Tabela~\ref{tab:params}. A haste é modelada como barra uniforme, de modo que o
+momento de inércia em torno do centro de massa é $I = \tfrac{1}{3}mL^{2}$.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l l}
+\hline
+\textbf{Grandeza} & \textbf{Símbolo} & \textbf{Valor} \\
+\hline
+Massa do carro          & $M$            & $1{,}0$~kg \\
+Massa da haste          & $m$            & $0{,}3$~kg \\
+Distância pivô--CM       & $L$            & $0{,}5$~m \\
+Inércia da haste (CM)   & $I=\tfrac{1}{3}mL^{2}$ & $0{,}025$~kg$\cdot$m$^{2}$ \\
+Atrito viscoso do carro & $b$            & $0{,}1$~N$\cdot$s/m \\
+Gravidade               & $g$            & $9{,}81$~m/s$^{2}$ \\
+\hline
+Passo de amostragem     & $\Delta t$     & $0{,}01$~s ($100$~Hz) \\
+Horizonte de simulação  & $T_f$          & $10$~s (padrão) \\
+\hline
+Ruído do encoder ($x$)  & $\sigma_x$     & $0{,}005$~m \\
+Ruído do encoder ($\theta$) & $\sigma_\theta$ & $0{,}005$~rad \\
+\hline
+\end{tabular}
+\caption{Parâmetros físicos, de simulação e de medição adotados no projeto.}
+\label{tab:params}
+\end{table}
+
+\section{Planta de controle}
+
+%-----------------------------------------------------------------------------------------------
+%   DIAGRAMA DE CORPO LIVRE NO REFERENCIAL NAO INERCIAL DO CARRINHO
+%-----------------------------------------------------------------------------------------------
+\noindent{No referencial não inercial do carrinho:}
+
+\vspace{0.4cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    scale=1.15,
+    >=Latex,
+    every node/.style={font=\large},
+    force/.style={->, thick, line width=1.0pt},
+    body/.style={thick, line width=1.1pt},
+    rod/.style={line width=3.5pt},
+    axis/.style={->, thick, line width=0.9pt},
+    measure/.style={<->, thick, line width=0.8pt}
+]
+
+    % --- Parametros geometricos -----------------------------------------
+    \def\rodang{108}      % angulo da haste medido do eixo x (>90 => inclina para a esquerda)
+    \def\rodlen{3.6}      % comprimento desenhado da haste
+    \def\comfrac{0.55}    % fracao ate o centro de massa
+
+    % --- Chao -----------------------------------------------------------
+    \draw[thick] (-4.6,0) -- (4.8,0);
+    \foreach \xx in {-4.4,-3.9,...,4.6}{
+        \draw[thin] (\xx,0) -- ++(-0.22,-0.22);
+    }
+
+    % --- Carrinho -------------------------------------------------------
+    \draw[body, fill=gray!10] (-1.7,0.55) rectangle (1.7,1.45);
+    \draw[body, fill=white] (-0.95,0.30) circle (0.24);
+    \draw[body, fill=white] (0.95,0.30) circle (0.24);
+
+    % --- Pivo e haste ---------------------------------------------------
+    \coordinate (P) at (-0.55,1.45);
+    \coordinate (Top) at ($(P)+({\rodlen*cos(\rodang)},{\rodlen*sin(\rodang)})$);
+    \coordinate (G)   at ($(P)+({\comfrac*\rodlen*cos(\rodang)},{\comfrac*\rodlen*sin(\rodang)})$);
+    \coordinate (V)   at ($(P)+(0,2.9)$);
+
+    \draw[dashed, thick] (P) -- (V);          % vertical de referencia
+    \draw[rod] (P) -- (Top);                  % haste
+    \fill (P) circle (3.2pt);                 % pivo
+    \fill (G) circle (4pt);                   % centro de massa
+
+    % --- Aceleracao angular (theta ponto ponto) -------------------------
+    \draw[->, thick] ($(Top)+(0.35,0.05)$) arc[start angle=-20, end angle=60, radius=0.75];
+    \node at ($(Top)+(0.15,0.55)$) {$\ddot{\theta}$};
+
+    % --- Pseudo-forca m xddot no CM (aponta para tras, esquerda) --------
+    \draw[force] (G) -- ++(-1.25,0);
+    \node[anchor=south east] at ($(G)+(-1.25,0.02)$) {$m\ddot{x}$};
+
+    % --- Peso mg ---------------------------------------------------------
+    \draw[force] (G) -- ++(0,-1.0);
+    \node[anchor=north east] at ($(G)+(-0.05,-0.55)$) {$mg$};
+
+    % --- Reacao vertical no pivo Fy (seta um pouco a direita da tracejada)
+    \draw[force, azul] ($(P)+(0.10,0)$) -- ++(0,1.30);
+    \node[anchor=west, azul] at ($(P)+(0.22,1.28)$) {$F_y$};
+
+    % --- Comprimento L (rotulo a direita da haste, parte baixa) ---------
+    \node[anchor=west] at ($(P)!0.35!(G)+(0.30,0)$) {$L$};
+
+    % --- Angulo theta (entre vertical e haste, junto ao pivo) -----------
+    \draw[->, thick] ($(P)+(0,0.50)$) arc[start angle=90, end angle=\rodang, radius=0.50];
+    \node at ($(P)+(-0.16,0.34)$) {$\theta$};
+
+    % --- Reacao horizontal no pivo Fx (rotulo abaixo da seta, no carrinho)
+    \draw[force, azul] (P) -- ++(-1.05,0);
+    \node[anchor=north, azul] at ($(P)+(-0.62,-0.04)$) {$F_x$};
+
+    % --- Forca de controle u (no carrinho, aponta para a direita) -------
+    \draw[force, vermelho] (-2.90,0.95) -- (-1.7,0.95);
+    \node[vermelho] at (-2.35,1.24) {$u$};
+
+    % --- Atrito viscoso b xdot (embaixo, aponta para a esquerda) --------
+    \draw[force, vermelho] (-1.4,0.15) -- ++(-1.1,0);
+    \node[anchor=south, vermelho] at (-1.95,0.20) {$b\dot{x}$};
+
+    % --- Termo inercial M xddot (no carrinho, aponta para a esquerda) ---
+    \draw[force] (2.75,1.05) -- (1.75,1.05);
+    \node[anchor=west] at (2.30,1.35) {$M\ddot{x}$};
+
+    % --- Reacao no carrinho Fx (aponta para a direita) ------------------
+    \draw[force, vermelho] (1.75,0.70) -- (2.90,0.70);
+    \node[anchor=west, vermelho] at (2.92,0.70) {$F_x$};
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.4cm}
+
+%-----------------------------------------------------------------------------------------------
+%   EQUACOES
+%-----------------------------------------------------------------------------------------------
+
+\begin{align}
+    u + F_x - b\dot{x} &= M\ddot{x} \\[4pt]
+    mgL\sin\theta + m\ddot{x}\,L\cos\theta &= \left(I + mL^{2}\right)\ddot{\theta} \\[4pt]
+    F_x + m\ddot{x} &= m\left(L\ddot{\theta}\cos\theta - L\dot{\theta}^{2}\sin\theta\right)
+\end{align}
+
+Substituindo $F_x$ da equação (3) na equação (1):
+
+\[
+u + m\left(-\ddot{x} + L\ddot{\theta}\cos\theta - L\dot{\theta}^{2}\sin\theta\right) - b\dot{x} = M\ddot{x}
+\]
+
+Reorganizando, chega-se ao sistema:
+
+\[
+\left\{
+\begin{aligned}
+u &= (M+m)\ddot{x} + b\dot{x} - mL\ddot{\theta}\cos\theta + mL\dot{\theta}^{2}\sin\theta \\[6pt]
+mL\ddot{x}\cos\theta &= \left(I + mL^{2}\right)\ddot{\theta} - mgL\sin\theta
+\end{aligned}
+\right.
+\]
+
+\vspace{0.3cm}
+
+%-----------------------------------------------------------------------------------------------
+%   DESENVOLVIMENTO ATE A FORMA DE ESTADOS
+%-----------------------------------------------------------------------------------------------
+
+Escolhemos como vetor de estado
+
+\[
+X =
+\begin{bmatrix}
+x_1 \\ x_2 \\ x_3 \\ x_4
+\end{bmatrix}
+=
+\begin{bmatrix}
+x \\ \dot{x} \\ \theta \\ \dot{\theta}
+\end{bmatrix},
+\qquad\text{de modo que}\qquad
+\dot{X} =
+\begin{bmatrix}
+\dot{x} \\ \ddot{x} \\ \dot{\theta} \\ \ddot{\theta}
+\end{bmatrix}
+=
+\begin{bmatrix}
+x_2 \\ \ddot{x} \\ x_4 \\ \ddot{\theta}
+\end{bmatrix}.
+\]
+
+Como $\dot{x}_1 = x_2$ e $\dot{x}_3 = x_4$ são imediatos, resta obter expressões
+explícitas para $\ddot{x}$ e $\ddot{\theta}$.
+
+
+Reescrevendo o sistema com os termos de aceleração à esquerda:
+
+\[
+\begin{aligned}
+(M+m)\,\ddot{x} \;-\; mL\cos\theta\,\ddot{\theta}
+&= u - b\dot{x} - mL\dot{\theta}^{2}\sin\theta \\[4pt]
+-\,mL\cos\theta\,\ddot{x} \;+\; \left(I+mL^{2}\right)\ddot{\theta}
+&= mgL\sin\theta
+\end{aligned}
+\]
+
+Podemos usar o formato matricial
+
+\[
+\underbrace{
+\begin{bmatrix}
+M+m & -mL\cos\theta \\[2pt]
+-mL\cos\theta & I+mL^{2}
+\end{bmatrix}}_{A}
+\begin{bmatrix}
+\ddot{x} \\[2pt] \ddot{\theta}
+\end{bmatrix}
+=
+\begin{bmatrix}
+u - b\dot{x} - mL\dot{\theta}^{2}\sin\theta \\[2pt]
+mgL\sin\theta
+\end{bmatrix}.
+\]
+
+Para simplificar, definimos
+
+\[
+a = M+m, \qquad
+h = mL\cos\theta, \qquad
+J = I + mL^{2},
+\]
+\[
+r_1 = u - b\dot{x} - mL\dot{\theta}^{2}\sin\theta, \qquad
+r_2 = mgL\sin\theta,
+\]
+
+de forma que $A=\begin{bmatrix} a & -h \\ -h & J \end{bmatrix}$.
+
+
+O determinante é
+
+\[
+\Delta = \det A = aJ - h^{2}
+= (M+m)\left(I+mL^{2}\right) - m^{2}L^{2}\cos^{2}\theta,
+\]
+
+e a inversa de uma matriz $2\times2$ simétrica é
+
+\[
+A^{-1} = \frac{1}{\Delta}
+\begin{bmatrix}
+J & h \\ h & a
+\end{bmatrix}.
+\]
+
+Logo,
+
+\[
+\begin{bmatrix}
+\ddot{x} \\[2pt] \ddot{\theta}
+\end{bmatrix}
+= \frac{1}{\Delta}
+\begin{bmatrix}
+J & h \\ h & a
+\end{bmatrix}
+\begin{bmatrix}
+r_1 \\[2pt] r_2
+\end{bmatrix}
+\quad\Longrightarrow\quad
+\begin{aligned}
+\ddot{x} &= \frac{J\,r_1 + h\,r_2}{\Delta}, \\[6pt]
+\ddot{\theta} &= \frac{h\,r_1 + a\,r_2}{\Delta}.
+\end{aligned}
+\]
+
+
+Substituindo $a$, $h$, $J$, $r_1$ e $r_2$:
+
+\[
+\ddot{x} =
+\frac{
+\left(I+mL^{2}\right)\!\left(u - b\dot{x} - mL\dot{\theta}^{2}\sin\theta\right)
++ mL\cos\theta\,\big(mgL\sin\theta\big)
+}{
+(M+m)\left(I+mL^{2}\right) - m^{2}L^{2}\cos^{2}\theta
+},
+\]
+
+\[
+\ddot{\theta} =
+\frac{
+mL\cos\theta\,\!\left(u - b\dot{x} - mL\dot{\theta}^{2}\sin\theta\right)
++ (M+m)\,\big(mgL\sin\theta\big)
+}{
+(M+m)\left(I+mL^{2}\right) - m^{2}L^{2}\cos^{2}\theta
+}.
+\]
+
+Para a haste uniforme, $I=\dfrac{mL^{2}}{3}$, de modo que $I+mL^{2}=\dfrac{4}{3}mL^{2}$.
+
+
+Reunindo tudo, com $X=[\,x\ \ \dot{x}\ \ \theta\ \ \dot{\theta}\,]^{\mathsf T}$:
+
+\[
+\dot{X} =
+\begin{bmatrix}
+\dot{x}_1 \\[4pt] \dot{x}_2 \\[4pt] \dot{x}_3 \\[4pt] \dot{x}_4
+\end{bmatrix}
+=
+\begin{bmatrix}
+x_2 \\[6pt]
+\dfrac{
+\left(I+mL^{2}\right)\!\left(u - b\,x_2 - mL\,x_4^{2}\sin x_3\right)
++ m^{2}gL^{2}\sin x_3\cos x_3
+}{
+(M+m)\left(I+mL^{2}\right) - m^{2}L^{2}\cos^{2} x_3
+} \\[16pt]
+x_4 \\[6pt]
+\dfrac{
+mL\cos x_3\,\!\left(u - b\,x_2 - mL\,x_4^{2}\sin x_3\right)
++ (M+m)\,mgL\sin x_3
+}{
+(M+m)\left(I+mL^{2}\right) - m^{2}L^{2}\cos^{2} x_3
+}
+\end{bmatrix}.
+\]
+
+\vspace{0.3cm}
+
+%-----------------------------------------------------------------------------------------------
+%   LINEARIZACAO EM TORNO DA VERTICAL
+%-----------------------------------------------------------------------------------------------
+% >>> [SEÇÃO B] label adicionado só para permitir referência cruzada a partir da
+% nova Seção "Estimadores de Estado Clássicos" (\ref{sec:linearizacao} logo abaixo);
+% o conteúdo desta seção não foi alterado.
+\section{Linearização em torno da vertical}
+\label{sec:linearizacao}
+
+O objetivo do controlador de estabilização é manter a haste na vertical
+($\theta = 0$). Linearizamos, portanto, a dinâmica em torno do equilíbrio
+
+\[
+X_{eq} = \begin{bmatrix} 0 & 0 & 0 & 0 \end{bmatrix}^{\mathsf T},
+\qquad u_{eq} = 0,
+\]
+
+usando as aproximações de pequenos ângulos e desprezando os termos de segunda
+ordem (o produto $\dot{\theta}^{2}\sin\theta$ é de ordem superior e se anula):
+
+\[
+\cos\theta \approx 1, \qquad \sin\theta \approx \theta, \qquad
+\dot{\theta}^{2}\sin\theta \approx 0.
+\]
+
+Nessas condições o determinante deixa de depender de $\theta$ (sua dependência é
+em $\cos^{2}\theta$, cuja derivada em $\theta=0$ é nula):
+
+\[
+\Delta_0 = (M+m)\left(I+mL^{2}\right) - m^{2}L^{2}
+= mL^{2}\!\left[\tfrac{4}{3}(M+m) - m\right].
+\]
+
+As expressões de $\ddot{x}$ e $\ddot{\theta}$ tornam-se lineares:
+
+\[
+\begin{aligned}
+\ddot{x} &\approx
+-\,\frac{\left(I+mL^{2}\right)b}{\Delta_0}\,\dot{x}
+\;+\; \frac{m^{2}L^{2}g}{\Delta_0}\,\theta
+\;+\; \frac{I+mL^{2}}{\Delta_0}\,u, \\[8pt]
+\ddot{\theta} &\approx
+-\,\frac{mLb}{\Delta_0}\,\dot{x}
+\;+\; \frac{(M+m)mgL}{\Delta_0}\,\theta
+\;+\; \frac{mL}{\Delta_0}\,u.
+\end{aligned}
+\]
+
+Escrevendo $\dot{X} = A\,X + B\,u$, obtemos a \emph{matriz de estados} $A$ e a
+\emph{matriz de entrada} $B$:
+
+\[
+A =
+\begin{bmatrix}
+0 & 1 & 0 & 0 \\[4pt]
+0 & -\dfrac{\left(I+mL^{2}\right)b}{\Delta_0} & \dfrac{m^{2}L^{2}g}{\Delta_0} & 0 \\[10pt]
+0 & 0 & 0 & 1 \\[4pt]
+0 & -\dfrac{mLb}{\Delta_0} & \dfrac{(M+m)mgL}{\Delta_0} & 0
+\end{bmatrix},
+\qquad
+B =
+\begin{bmatrix}
+0 \\[4pt] \dfrac{I+mL^{2}}{\Delta_0} \\[10pt] 0 \\[4pt] \dfrac{mL}{\Delta_0}
+\end{bmatrix}.
+\]
+
+O termo $A_{4,3} = (M+m)mgL/\Delta_0 > 0$ confirma que a vertical é um equilíbrio
+\textbf{instável}: um desvio $\theta>0$ gera $\ddot{\theta}>0$, afastando ainda
+mais a haste. É esse comportamento que a realimentação LQR corrige.
+
+\medskip
+
+\noindent\textbf{Instabilidade pelo critério de Routh-Hurwitz.}
+Isolando o modo da haste (equação de $\ddot{\theta}$ linearizada), desprezando o
+acoplamento com o carro e o atrito e tomando $u=0$, resulta
+$\ddot{\theta} - A_{4,3}\,\theta = 0$, cujo polinômio característico é
+
+\[
+P(s) = s^{2} + 0\cdot s - A_{4,3},
+\qquad A_{4,3} = \frac{(M+m)mgL}{\Delta_0} = 17{,}795 > 0.
+\]
+
+A \emph{condição necessária} de estabilidade de Routh-Hurwitz exige que todos os
+coeficientes estejam presentes e tenham o mesmo sinal. Aqui ela já é violada em
+dois pontos: o coeficiente de $s^{1}$ está ausente ($a_1=0$) e o termo
+independente $a_2 = -A_{4,3}$ tem sinal oposto ao de $a_0=1$. Logo, $P(s)$ não
+pode ter todas as raízes no semiplano esquerdo.
+
+Montando o arranjo de Routh (com a substituição $a_1 \to \varepsilon \to 0^{+}$
+para o zero na primeira coluna):
+
+\[
+\begin{array}{c|cc}
+s^{2} & 1 & -A_{4,3} \\[2pt]
+s^{1} & \varepsilon & 0 \\[2pt]
+s^{0} & -A_{4,3} &
+\end{array}
+\]
+
+A primeira coluna é $\;1,\ \varepsilon,\ -A_{4,3}\;$, isto é, $(+),(+),(-)$:
+ocorre \textbf{uma} troca de sinal, indicando \textbf{uma raiz no semiplano
+direito}. De fato, as raízes exatas são $s = \pm\sqrt{A_{4,3}} = \pm 4{,}22$, e a
+raiz $+4{,}22$ (modo $e^{+4{,}22\,t}$) é a que faz a haste cair. O termo
+$-A_{4,3}$ comporta-se como uma ``constante de mola negativa'': é esse polo
+instável que a realimentação LQR reposiciona no semiplano esquerdo.
+
+\medskip
+
+\noindent\textbf{Valores numéricos.} Com
+$M=1{,}0$~kg, $m=0{,}3$~kg, $L=0{,}5$~m, $g=9{,}81$~m/s$^2$, $b=0{,}1$~N$\cdot$s/m
+e $I=mL^{2}/3=0{,}025$~kg$\cdot$m$^2$, tem-se $I+mL^{2}=0{,}1$ e
+$\Delta_0 = 0{,}1075$, resultando em
+
+\[
+A =
+\begin{bmatrix}
+0 & 1 & 0 & 0 \\
+0 & -0{,}0930 & 2{,}0533 & 0 \\
+0 & 0 & 0 & 1 \\
+0 & -0{,}1395 & 17{,}795 & 0
+\end{bmatrix},
+\qquad
+B =
+\begin{bmatrix}
+0 \\ 0{,}9302 \\ 0 \\ 1{,}3953
+\end{bmatrix}.
+\]
+
+%-----------------------------------------------------------------------------------------------
+%   PROJETO DO LQR
+%-----------------------------------------------------------------------------------------------
+\section{Projeto do controlador LQR}
+
+A escolha do LQR se justifica pela própria natureza do problema. A planta é
+\textbf{instável} em malha aberta (Seção anterior, critério de Routh-Hurwitz):
+sem realimentação a haste inevitavelmente cai, de modo que um controlador ativo
+é obrigatório. Além disso, o cart-pole é um sistema de \textbf{quatro estados
+fortemente acoplados com uma única entrada} ($u$, a força no carro); técnicas
+clássicas de malha única (como um PID por variável) tornam-se difíceis de
+sintonizar nesse cenário multivariável, pois a mesma força precisa regular
+simultaneamente posição do carro e ângulo da haste. A realimentação de estados
+$u = -K\,X$ ataca todos os estados de uma vez, e o LQR fornece um critério
+\textbf{sistemático e ótimo} para escolher os quatro ganhos de $K$: em vez de
+posicionar polos por tentativa, minimiza-se um índice de desempenho que
+equilibra explicitamente o \emph{erro de regulação} (via $Q$) contra o
+\emph{esforço de controle} (via $R$). Como consequência, desde que o par $(A,B)$
+seja controlável, o LQR garante malha fechada estável e apresenta boas margens
+de robustez. Por fim, o LQR encaixa-se naturalmente no tema deste trabalho: pelo
+princípio da separação, o ganho projetado sobre o estado verdadeiro pode operar
+sobre o estado \emph{estimado} ($u = -K\,\hat{X}$), permitindo comparar o
+desempenho da malha alimentada por cada estimador (KF, EKF, UKF).
+
+\subsection{Controlabilidade}
+
+Antes de projetar, verifica-se que o par $(A,B)$ é controlável, isto é, que a
+matriz de controlabilidade tem posto completo:
+
+\[
+\mathcal{C} = \begin{bmatrix} B & AB & A^{2}B & A^{3}B \end{bmatrix},
+\qquad \operatorname{posto}(\mathcal{C}) = 4.
+\]
+
+Para o cart-pole isso se verifica: uma única força aplicada ao carro é capaz de
+governar os quatro estados.
+
+\subsection{Formulação do problema}
+
+O regulador linear quadrático escolhe a lei de realimentação de estados
+$u = -K\,X$ que minimiza o funcional de custo
+
+\[
+J = \int_{0}^{\infty}
+\left( X^{\mathsf T} Q\, X + u^{\mathsf T} R\, u \right) dt,
+\qquad Q = Q^{\mathsf T} \succeq 0, \quad R = R^{\mathsf T} \succ 0,
+\]
+
+em que $Q$ pondera o erro de estado e $R$ pondera o esforço de controle. O ganho
+ótimo é
+
+\[
+K = R^{-1} B^{\mathsf T} P,
+\]
+
+onde $P = P^{\mathsf T} \succeq 0$ é a solução da equação algébrica de Riccati (ARE)
+
+\[
+A^{\mathsf T} P + P A - P B R^{-1} B^{\mathsf T} P + Q = 0.
+\]
+
+Para um sistema de quarta ordem a ARE não é resolvida à mão; obtém-se $P$ (e daí
+$K$) numericamente (Seção~\ref{sec:matlab}).
+
+\subsection{Escolha de $Q$ e $R$ (regra de Bryson)}
+
+Como ponto de partida sistemático, aplica-se a \emph{regra de Bryson}: cada peso
+é o inverso do quadrado do desvio máximo aceitável para aquela variável,
+
+\[
+Q_{ii} = \frac{1}{x_{i,\max}^{2}}, \qquad R = \frac{1}{u_{\max}^{2}}.
+\]
+
+Adotando os limites físicos $x_{\max}=0{,}5$~m, $\dot{x}_{\max}=2$~m/s,
+$\theta_{\max}=10^{\circ}\approx0{,}175$~rad, $\dot{\theta}_{\max}=2$~rad/s e
+$u_{\max}=20$~N:
+
+\[
+Q = \operatorname{diag}(4;\ 0{,}25;\ 32{,}8;\ 0{,}25),
+\qquad R = 0{,}0025.
+\]
+
+Esses valores são apenas o ponto de partida; a sintonia final é iterativa
+(aumentar $Q_{33}$ deixa o ângulo mais firme; aumentar $R$ torna a resposta mais
+suave e econômica em força).
+
+\subsection{Cálculo do ganho no MATLAB}
+\label{sec:matlab}
+
+Com $A$, $B$, $Q$ e $R$ definidos, o ganho é obtido pela função \texttt{lqr}
+(requer a \emph{Control System Toolbox}). O trecho abaixo reaproveita o Jacobiano
+analítico já implementado (\texttt{jacobian\_f.m}) para montar $A$:
+
+\begin{verbatim}
+p = params();                        % parametros fisicos
+A = jacobian_f([0;0;0;0], 0, p);     % matriz de estados (Jacobiano em theta=0)
+
+d     = p.m*p.L^2/3 + p.m*p.L^2;     % I + mL^2
+k     = p.m*p.L;                     % mL
+a     = p.M + p.m;                   % M + m
+Delta = a*d - k^2;                   % determinante em theta = 0
+B     = [0; d/Delta; 0; k/Delta];    % matriz de entrada
+
+assert(rank(ctrb(A,B)) == 4, 'par (A,B) nao controlavel');
+
+Q = diag([1/0.5^2, 1/2^2, 1/deg2rad(10)^2, 1/2^2]);
+R = 1/20^2;
+
+K = lqr(A, B, Q, R)                  % ganho otimo -> guardar em p.K_lqr
+eig(A - B*K)                         % polos de malha fechada (Re < 0 => estavel)
+\end{verbatim}
+
+O ganho resultante (valores de referência) é
+
+\[
+K = \begin{bmatrix} -40{,}00 & -42{,}14 & 217{,}20 & 48{,}46 \end{bmatrix},
+\]
+
+com polos de malha fechada
+
+\[
+\begin{aligned}
+s_{1,2} &= -12{,}8126 \pm 2{,}5904\,j, \\
+s_{3,4} &= -1{,}4435 \pm 1{,}0585\,j,
+\end{aligned}
+\]
+
+todos com parte real negativa, o que confirma a estabilização da vertical.
+
+%-----------------------------------------------------------------------------------------------
+%   SWING-UP ENERGETICO
+%-----------------------------------------------------------------------------------------------
+\section{Controle de \emph{swing-up} energético}
+
+O LQR só estabiliza a haste dentro de uma pequena vizinhança da vertical (sua
+região de atração). Quando o pêndulo parte pendurado, é preciso primeiro
+\textbf{levá-lo até essa vizinhança}. Como a linearização não vale para ângulos
+grandes, usa-se uma estratégia não-linear baseada em \textbf{energia}
+(\emph{energy shaping}), seguindo a formulação de Tedrake~\cite{mit} e o método
+clássico de Åström e Furuta~\cite{astrom}: em vez de seguir uma trajetória,
+injeta-se energia no pêndulo balançando o carro no ritmo certo, até que ele
+tenha energia suficiente para alcançar a vertical.
+
+\subsection{Energia do pêndulo}
+
+Adotamos a notação de~\cite{mit}. A energia da haste é a soma das parcelas
+cinética $T$ e potencial $U$,
+
+\[
+E(\theta,\dot{\theta}) = T(\dot{\theta}) + U(\theta),
+\qquad
+T = \tfrac{1}{2} I\,\dot{\theta}^{2},
+\qquad
+U = -\,m g l\cos\theta,
+\]
+
+onde $I$ é o momento de inércia efetivo em torno do pivô e $l$ a distância do
+pivô ao centro de massa. Para a haste uniforme deste trabalho,
+$I = \tfrac{1}{3}mL^{2} + mL^{2} = \tfrac{4}{3}mL^{2}$ e $l = L$.
+
+\noindent\emph{Observação de convenção.} A referência~\cite{mit} mede $\theta$ a
+partir da posição \textbf{pendurada} ($\theta=0$ embaixo), de modo que
+$U=-mgl\cos\theta$ é mínimo embaixo. Na modelagem deste relatório $\theta=0$ é a
+\textbf{vertical superior}; as duas convenções diferem apenas por uma defasagem
+de $\pi$ e um sinal no termo potencial, sem alterar a lei de controle.
+
+A energia da órbita que alcança o equilíbrio superior instável (energia
+desejada) é, como em~\cite{mit},
+
+\[
+E^{d} = m g l.
+\]
+
+O objetivo do \emph{swing-up} é levar $E$ até $E^{d}$. Define-se o erro de energia
+
+\[
+\tilde{E} = E - E^{d}.
+\]
+
+\subsection{Lei de \emph{energy shaping}}
+
+Para o pêndulo simples atuado por torque na junta, \cite{mit} mostra que a lei
+
+\[
+u = -\,k\,\dot{\theta}\,\tilde{E}, \qquad k>0,
+\]
+
+produz a dinâmica de erro $\dot{\tilde{E}} = -\,k\,\dot{\theta}^{2}\,\tilde{E}$,
+que faz $\tilde{E}\to 0$. Isso decorre da função de Lyapunov
+$V = \tfrac{1}{2}\tilde{E}^{2}\ge 0$, cuja derivada é
+
+\[
+\dot{V} = \tilde{E}\,\dot{\tilde{E}}
+        = -\,k\,\dot{\theta}^{2}\,\tilde{E}^{2} \le 0.
+\]
+
+No cart-pole a entrada não é um torque na junta, mas a \textbf{força} $u$ no
+carro, que atua sobre a haste através da aceleração do pivô $\ddot{x}$. Da
+equação de movimento da haste,
+$I\,\ddot{\theta} = m g l\sin\theta + m l\cos\theta\,\ddot{x}$, obtém-se
+
+\[
+\boxed{\;\dot{E} = m l\cos\theta\,\dot{\theta}\,\ddot{x}\;}
+\]
+
+— os termos gravitacionais se cancelam e a energia só varia por meio de
+$\ddot{x}$. Repetindo o argumento de Lyapunov com
+$\dot{V} = \tilde{E}\,\dot{E} = \tilde{E}\,m l\cos\theta\,\dot{\theta}\,\ddot{x}$
+e escolhendo $\ddot{x}\propto -\,\dot{\theta}\,\tilde{E}\cos\theta$, resulta
+$\dot{V} = -\,k\,m l\,\tilde{E}^{2}\,\dot{\theta}^{2}\cos^{2}\theta \le 0$. A lei
+de \emph{energy shaping} adaptada ao cart-pole é, portanto, a de~\cite{mit} com
+o fator geométrico $\cos\theta$:
+
+\[
+\boxed{\;u = -\,k\,\dot{\theta}\,\tilde{E}\,\cos\theta,
+\qquad u \leftarrow \operatorname{sat}_{\pm u_{max}}(u).\;}
+\]
+
+Quando falta energia ($\tilde{E}<0$) a lei injeta energia
+($\dot{E}>0$); ao atingir $E^{d}$ o termo se anula. Nos pontos de retorno
+($\dot{\theta}=0$) e na horizontal ($\cos\theta=0$) tem-se $u=0$.
+
+\subsection{Regulação da posição do carro}
+
+A lei de \emph{energy shaping} pura tem uma limitação conhecida: ela governa a
+\textbf{energia da haste}, mas não faz nenhuma referência à \textbf{posição do
+carro}. Como o bombeamento empurra o carro sempre no sentido que adiciona
+energia, o carro deriva sem limite (nas simulações, dezenas de metros), e o LQR
+recebe a haste no topo com o carro deslocado --- condição fora de sua região de
+atração, de modo que a captura falha.
+
+A solução clássica, seguindo Chung e Spong~\cite{spong} e Tedrake~\cite{mit2},
+é somar à lei de \emph{energy shaping} um controlador \textbf{PD sobre o carro},
+que o mantém próximo da origem sem impedir o balanço:
+
+\[
+\boxed{\;u = -\,k_{swing}\,\dot{\theta}\,\tilde{E}\cos\theta
+\;\underbrace{-\,k_p\,x\;-\;k_d\,\dot{x}}_{\text{PD no carro}},
+\qquad u \leftarrow \operatorname{sat}_{\pm u_{max}}(u).\;}
+\]
+
+O termo $-k_p\,x$ age como uma mola que puxa o carro de volta a $x=0$ e
+$-k_d\,\dot{x}$ como amortecimento. Optou-se por um PD (e não PI/PID): o
+\emph{swing-up} é um transitório curto sob uma ``perturbação'' oscilatória (o
+próprio bombeamento troca de sinal a cada balanço), sem erro de regime
+permanente a corrigir --- um termo integral apenas acumularia esse sinal
+(\emph{windup}) e brigaria com o bombeamento. Os ganhos adotados, obtidos por
+busca em simulação, são
+
+\[
+k_{swing} = 12, \qquad k_p = 5, \qquad k_d = 2,
+\]
+
+com os quais a haste sobe e é capturada em torno de $1{,}2$~s (estado ideal, sem
+ruído). Trata-se de um ponto de partida: os ganhos podem ser reotimizados
+(por exemplo, minimizando o tempo de subida sob restrição da excursão do carro).
+
+\subsection{Comutação para o LQR}
+
+O \emph{swing-up} entrega a haste dentro da região de atração do LQR. Adota-se
+uma condição de comutação por ângulo e velocidade pequenos,
+
+\[
+\lvert\theta\rvert < 15^{\circ}
+\quad\text{e}\quad
+\lvert\dot{\theta}\rvert < 2~\text{rad/s}
+\;\Longrightarrow\;
+\text{muda para } u = -K\hat{X},
+\]
+
+combinando a fase não-linear (energia) com a fase linear (LQR) num único
+controlador de duas fases, exatamente o cenário que exercita os estimadores em
+regimes distintos.
+
+%-----------------------------------------------------------------------------------------------
+%   MODELO DE SENSORES
+%-----------------------------------------------------------------------------------------------
+% >>> [SEÇÃO B] label adicionado só para permitir referência cruzada a partir da
+% nova Seção "Estimadores de Estado Clássicos"; conteúdo desta seção não foi alterado.
+\section{Modelo de sensores e cenários de teste}
+\label{sec:sensores}
+
+O modelo de sensores é a interface entre a ``verdade'' do simulador e o que os
+estimadores efetivamente observam: recebe o estado verdadeiro e devolve uma
+medição imperfeita. Como os filtros nunca acessam $X$ diretamente, é este
+modelo que torna o problema de estimação realista.
+
+\subsection{Grandezas medidas}
+
+Apenas as \textbf{posições} são medidas, reproduzindo um par de encoders na
+posição do carro e no ângulo da haste; as velocidades $\dot{x}$ e $\dot{\theta}$
+não são medidas e devem ser estimadas. A medição é, portanto,
+
+\[
+z_k =
+\begin{bmatrix} x \\ \theta \end{bmatrix}_{t_k}
++\; v_k,
+\qquad
+v_k \sim \mathcal{N}(0,\,R),
+\qquad
+R = \operatorname{diag}\!\left(\sigma_x^{2},\ \sigma_\theta^{2}\right),
+\]
+
+com ruído branco gaussiano e independente por canal. Os desvios nominais são
+$\sigma_x = \sigma_\theta = 0{,}005$ (Tabela~\ref{tab:params}). Essa escolha ---
+medir só posições --- é o que dá sentido à comparação de estimadores: obter
+$\dot{x}$ e $\dot{\theta}$ é exatamente a tarefa que separa a simples
+diferenciação com passa-baixas dos filtros baseados em modelo (KF/EKF/UKF).
+
+\subsection{Degradações e escolhas de projeto}
+
+Além do ruído nominal, o sensor reproduz três degradações, acionadas por
+parâmetros dos cenários (Seção de resultados). As escolhas de modelagem foram:
+
+\begin{itemize}
+  \item \textbf{Ruído elevado (S3).} Multiplica-se $\sigma_x$ e $\sigma_\theta$
+  por um fator (10$\times$). Testa a filtragem quando a relação sinal-ruído
+  cai, favorecendo estimadores que ponderam corretamente medição \emph{vs.}
+  modelo.
+
+  \item \textbf{\emph{Dropout} de medida (S4).} A cada passo, com probabilidade
+  $p_{drop}$, a leitura é \textbf{totalmente perdida}. Optou-se por sinalizar a
+  perda com uma medição \emph{vazia} ($z_k=\varnothing$), em vez de um valor
+  qualquer, para que o estimador execute um passo de \textbf{predição pura} (sem
+  atualização): a média é propagada pelo modelo e a covariância $P$ cresce,
+  refletindo corretamente o aumento de incerteza. Zerar ou congelar a medição
+  daria ao filtro uma confiança falsa, corrompendo a análise de consistência
+  (NEES/NIS).
+
+  \item \textbf{\emph{Outliers}.} Cada canal, com probabilidade $p_{out}$,
+  recebe um pico espúrio de amplitude proporcional a $\sigma$ (por padrão
+  $30\sigma$) e sinal aleatório. Modela leituras absurdas e ocasionais, que um
+  estimador robusto deve rejeitar. É desligado por padrão
+  ($p_{out}=0$) e destina-se a um teste opcional de robustez.
+\end{itemize}
+
+Todas as degradações têm probabilidade nula por padrão, de forma que os cenários
+sem \emph{override} usam apenas o ruído gaussiano nominal e permanecem
+comparáveis entre si.
+
+%=================================================================================================
+%   >>> [SEÇÃO B — INÍCIO] ESTIMADORES DE ESTADO CLÁSSICOS
+%   Conteúdo redigido a pedido do responsável pela Seção B (README: "KF linear,
+%   linearização e filtragem clássica" — arquivos est_lowpass.m, est_complementary.m,
+%   est_kf.m). Texto gerado como PONTO DE PARTIDA: revise, reescreva com suas
+%   palavras e ajuste os comentários "% >>> EDITAR:" espalhados abaixo antes da
+%   entrega final. As equações e os valores numéricos foram conferidos contra o
+%   código (src/est_lowpass.m, src/est_complementary.m, src/est_kf.m, src/params.m)
+%   e contra um cálculo numérico independente (discretização ZOH), mas vale a pena
+%   reconferir depois de qualquer alteração nos parâmetros de params.m.
+%=================================================================================================
+\section{Estimadores de Estado Clássicos: da Diferenciação ao Filtro de Kalman Linear}
+\label{sec:estimadores-classicos}
+
+Esta seção descreve os três estimadores "clássicos" do projeto — isto é, os que
+não dependem de linearização \emph{online} nem de amostragem estocástica do
+espaço de estados, ao contrário do EKF e do UKF, tratados na seção
+seguinte\footnote{% >>> EDITAR: trocar por "Seção~\ref{sec:ekf-ukf}" (ou o label
+que for usado) assim que a seção de EKF/UKF do(a) colega responsável pela Seção C
+for integrada a este documento — ainda não existe no momento em que este texto
+foi escrito.}. Os três compartilham a mesma interface de \emph{drop-in} definida
+no contrato do projeto,
+
+\[
+[\hat X_k,\ P_k] = \texttt{estimator\_update}(\hat X_{k-1},\, P_{k-1},\, z_k,\, u_k,\, p),
+\]
+
+e atuam sobre a mesma medição de posições $z_k=[x\ \ \theta]^{\mathsf T}_{t_k}$
+definida na Seção~\ref{sec:sensores}, mas diferem radicalmente na quantidade de
+\textbf{modelo} que incorporam: da ausência total de modelo dinâmico (baseline),
+passando por um modelo aproximado e implícito (complementar), até o modelo
+linear completo do pêndulo, explicitamente propagado com sua incerteza
+estatística (Kalman linear). Essa progressão prepara o terreno para o EKF e o
+UKF (Seção seguinte), que estendem o mesmo princípio de propagação de
+covariância ao modelo \emph{não-linear} do cart-pole.
+
+\subsection{Baseline do curso: diferenciação numérica com filtro passa-baixas}
+\label{sec:baseline-lowpass}
+
+O primeiro estimador (\texttt{est\_lowpass.m}) reproduz exatamente a técnica
+vista em CMC-12: um filtro passa-baixas digital de primeira ordem (média móvel
+exponencial) aplicado à medição, seguido de diferenciação numérica para obter as
+velocidades~\cite{oppenheim}. Para cada canal medido,
+
+\[
+\tilde x_k = \alpha\,\tilde x_{k-1} + (1-\alpha)\,z_{x,k},
+\qquad
+\tilde\theta_k = \alpha\,\tilde\theta_{k-1} + (1-\alpha)\,z_{\theta,k},
+\qquad \alpha\in(0,1),
+\]
+
+e as velocidades são obtidas por diferença atrasada (\emph{backward
+difference}) do sinal já filtrado:
+
+\[
+\hat{\dot x}_k = \frac{\tilde x_k - \tilde x_{k-1}}{\Delta t},
+\qquad
+\hat{\dot\theta}_k = \frac{\tilde\theta_k - \tilde\theta_{k-1}}{\Delta t}.
+\]
+
+Esse filtro recursivo de primeiro grau é o análogo discreto de um passa-baixas
+$RC$ contínuo com constante de tempo $\tau = -\Delta t/\ln\alpha$, ou,
+equivalentemente, frequência de corte
+$f_c = \dfrac{1}{2\pi\tau} = \dfrac{-\ln\alpha}{2\pi\,\Delta t}$
+\cite{oppenheim}. % >>> EDITAR: se preferir, desenvolva a passagem de y[k]=alpha
+% y[k-1]+(1-alpha)x[k] até essa fc no corpo do texto (fica como exercício de
+% redação — a fórmula em si já está conferida).
+Com o valor padrão do código, $\alpha_{lp}=0{,}8$, e $\Delta t = 0{,}01$~s
+(Tabela~\ref{tab:params}), obtém-se $f_c \approx 3{,}55$~Hz: qualquer conteúdo do
+sinal acima dessa frequência — inclusive parte da dinâmica real do
+\emph{swing-up}, que é rápida e fortemente não-linear — é atenuado e atrasado
+junto com o ruído do encoder.
+
+Esse é precisamente o ponto fraco do baseline, e a razão de ele servir de
+referência inferior na comparação: \textbf{não há nenhum modelo da planta}
+embutido no filtro. Quanto maior $\alpha$, menor o ruído mas maior o atraso de
+fase (\emph{lag}) — o mesmo compromisso ruído \emph{vs.} atraso de qualquer
+filtro passa-baixas clássico~\cite{oppenheim} — e não existe forma de reduzir
+simultaneamente os dois, porque o filtro não distingue ruído de medição de
+dinâmica real do sistema. Note-se ainda que a covariância $P$ não tem
+significado probabilístico aqui: o código apenas a repassa adiante
+(\texttt{P = P\_prev}) só para respeitar a interface comum, já que não há
+modelo de incerteza a propagar.
+
+\subsection{Filtro complementar}
+\label{sec:complementar}
+
+O segundo estimador (\texttt{est\_complementary.m}) já incorpora uma noção
+mínima de modelo: a cada passo, prediz a posição por integração de Euler à
+frente supondo velocidade constante,
+
+\[
+x_{pred} = \hat x_{k-1} + \Delta t\,\hat{\dot x}_{k-1},
+\qquad
+\theta_{pred} = \hat\theta_{k-1} + \Delta t\,\hat{\dot\theta}_{k-1},
+\]
+
+e funde essa predição com a medição bruta usando um ganho fixo
+$\alpha_{comp}\in(0,1)$,
+
+\[
+x_{fused} = (1-\alpha_{comp})\,x_{pred} + \alpha_{comp}\,z_{x,k},
+\qquad
+\theta_{fused} = (1-\alpha_{comp})\,\theta_{pred} + \alpha_{comp}\,z_{\theta,k},
+\]
+
+com as velocidades novamente obtidas por diferença atrasada do sinal fundido.
+O nome "complementar" vem da interpretação clássica no domínio da frequência
+introduzida por Higgins~\cite{higgins1975}: dados dois sensores (ou, aqui, um
+sensor e um modelo) que medem a mesma grandeza com espectros de ruído
+complementares, pondera-se cada fonte por um par de filtros $H(s)$ e $1-H(s)$
+que somam a unidade —
+
+\[
+\hat X(s) = H(s)\,Z(s) + \big(1-H(s)\big)\,X_{pred}(s),
+\]
+
+de modo que a medição (tipicamente confiável em baixa frequência, mas ruidosa
+em alta) e o modelo/predição (suave, mas sujeito a deriva em regime
+permanente) se complementam sem a necessidade de estimar covariâncias
+explicitamente. A versão discreta a ganho fixo implementada aqui é a forma mais
+simples dessa ideia; note-se que, com o ganho padrão do código,
+$\alpha_{comp} = 0{,}02$, o filtro confia fortemente na predição (98\,\%) e
+corrige lentamente pela medição (2\,\%) a cada passo — um compromisso adequado
+quando o modelo de velocidade constante é razoável entre amostras, mas que
+ainda assim acumula deriva se mantido por muitos passos sem medição (o mesmo
+problema clássico de INS/AHRS discutido por Higgins~\cite{higgins1975} e por
+Grewal \emph{et al.}~\cite{grewal2013}). É justamente esse ganho fixo,
+não-ótimo e invariante no tempo, que o Filtro de Kalman generaliza na próxima
+subseção: o KF pode ser visto como um filtro complementar cujo ganho $K_k$ é
+recalculado a cada passo para ser o \emph{ótimo} dado o par
+modelo/medição~\cite{simon2006, brownhwang2012}.
+% >>> EDITAR: se quiser, comente aqui a diferença de comportamento observada
+% experimentalmente entre alpha_comp=0,02 (proj. atual) e valores maiores, quando
+% os resultados dos cenários S1/S3 estiverem disponíveis.
+
+\subsection{Do modelo linearizado ao Filtro de Kalman discreto}
+\label{sec:kf-linear}
+
+\subsubsection{Discretização por segurador de ordem zero (ZOH)}
+\label{sec:zoh}
+
+O terceiro estimador (\texttt{est\_kf.m}) usa o modelo \emph{linear}
+$\dot X = AX+Bu$ já obtido na Seção~\ref{sec:linearizacao} em torno da vertical,
+complementado pelo modelo de medição (linear e exato, já que só se observam
+posições diretamente),
+
+\[
+z = C X, \qquad
+C = \begin{bmatrix} 1 & 0 & 0 & 0 \\ 0 & 0 & 1 & 0 \end{bmatrix}.
+\]
+
+Como o KF discreto opera sobre o par $(A_d, B_d)$ amostrado a $\Delta t$, e não
+sobre $(A,B)$ contínuos, é preciso discretizar. A discretização exata de um
+sistema linear sob entrada constante por trecho (\emph{zero-order hold}, ZOH) é
+
+\[
+A_d = e^{A\Delta t}, \qquad
+B_d = \int_0^{\Delta t} e^{A\tau}\,d\tau\;B,
+\]
+
+resultado padrão de controle digital (ver, por exemplo, Franklin, Powell e
+Workman~\cite{franklin1997}, ou Åström e Wittenmark~\cite{astromwittenmark1997}).
+Quando $A$ é invertível, $B_d = A^{-1}(A_d - I)B$; \textbf{não é o caso aqui}: a
+dinâmica do cart-pole é invariante à translação (a posição $x$ não aparece em
+nenhuma equação de movimento), de modo que a primeira coluna de $A$
+(Seção~\ref{sec:linearizacao}) é inteiramente nula e $A$ é singular. O caminho
+numericamente robusto — e o que o MATLAB usa internamente em \texttt{c2d} — é
+formar a exponencial da matriz aumentada~\cite{franklin1997, astromwittenmark1997}
+
+\[
+\exp\!\left(
+\begin{bmatrix} A & B \\ 0 & 0 \end{bmatrix}\Delta t
+\right)
+=
+\begin{bmatrix} A_d & B_d \\ 0 & I \end{bmatrix},
+\]
+
+que evita a inversão e vale mesmo com $A$ singular. Como a saída $z=CX$ é uma
+relação puramente algébrica (sem dinâmica), a discretização não altera $C$, ou
+seja, $C_d = C$. É exatamente esse procedimento que a função auxiliar
+\texttt{linearise\_upright()} (dentro de \texttt{est\_kf.m}) deve executar via
+\texttt{c2d(ss(A\_c,B\_c,C\_c,0), dt, `zoh')} — no momento em que este texto foi
+escrito, essa função ainda contém \texttt{TODO}s com $A_c$ e $B_c$
+\emph{placeholders} (zeros); o preenchimento correto é reaproveitar
+literalmente as matrizes $A$ e $B$ já derivadas e verificadas na
+Seção~\ref{sec:linearizacao}.
+% >>> EDITAR / TODO (código, fora do escopo deste .tex): preencher A_c, B_c em
+% est_kf.m com as matrizes de \ref{sec:linearizacao} e chamar linearise_upright()
+% a partir de params.m (ou de run_scenario.m) antes de usar est_kf.
+
+Para conferência, com $\Delta t = 0{,}01$~s e os valores numéricos de $A$ e $B$
+já apresentados na Seção~\ref{sec:linearizacao}, a discretização ZOH fornece
+(calculado numericamente a partir da matriz aumentada acima)
+
+\[
+A_d \approx
+\begin{bmatrix}
+1 & 0{,}009995 & 1{,}03\times10^{-4} & 3{,}4\times10^{-7} \\
+0 & 0{,}999070 & 0{,}020529          & 1{,}03\times10^{-4} \\
+0 & -6{,}98\times10^{-6} & 1{,}000890 & 0{,}010003 \\
+0 & -0{,}001395 & 0{,}177987          & 1{,}000890
+\end{bmatrix},
+\qquad
+B_d \approx
+\begin{bmatrix}
+4{,}65\times10^{-5} \\ 0{,}009298 \\ 6{,}98\times10^{-5} \\ 0{,}013951
+\end{bmatrix}.
+\]
+
+Como esperado de uma discretização fiel a um passo pequeno frente à dinâmica
+($\Delta t=0{,}01$~s $\ll$ constantes de tempo de $A$, cujos polos ficam em
+$\pm4{,}22$ e $-0{,}077$~rad/s — Seção~\ref{sec:linearizacao}), $A_d$ é próxima
+da identidade e os autovalores de $A_d$ (isto é, $e^{\lambda_i(A)\Delta t}$)
+ficam próximos de $1$: um deles, $e^{+4{,}2266\times0{,}01}\approx1{,}0430$,
+maior que $1$ em módulo, confirma que o modo instável da haste
+(Seção~\ref{sec:linearizacao}) permanece instável também no domínio discreto,
+como deveria.
+% >>> EDITAR: se quiser, substitua os valores acima pelos que sua própria
+% implementação de linearise_upright()/c2d produzir — devem bater (ZOH é exato).
+
+\subsubsection{Algoritmo do Filtro de Kalman}
+\label{sec:kf-algoritmo}
+
+Com $(A_d,B_d,C_d)$ em mãos, o KF linear implementado segue exatamente a forma
+padrão de predição--correção de Kalman~\cite{kalman1960, welch1995, simon2006}:
+
+\medskip
+\noindent\textbf{Predição} (propaga estado e incerteza pelo modelo, sem usar a medição):
+\[
+\hat X_{k}^{-} = A_d\,\hat X_{k-1} + B_d\,u_{k-1},
+\qquad
+P_{k}^{-} = A_d\,P_{k-1}\,A_d^{\mathsf T} + Q,
+\]
+
+\noindent\textbf{Atualização} (corrige com a nova medição $z_k$):
+\[
+S_k = C_d\,P_k^{-}\,C_d^{\mathsf T} + R,
+\qquad
+K_k = P_k^{-}\,C_d^{\mathsf T}\,S_k^{-1},
+\qquad
+\hat X_k = \hat X_k^{-} + K_k\big(z_k - C_d\hat X_k^{-}\big),
+\qquad
+P_k = (I - K_k C_d)\,P_k^{-},
+\]
+
+em que $Q$ e $R$ são as covariâncias (supostas conhecidas, diagonais e
+constantes) do ruído de processo e de medição, respectivamente
+(Tabela~\ref{tab:params-qr} adiante). O ganho $K_k$ não é arbitrário: é o único
+ganho que minimiza a incerteza remanescente $\operatorname{tr}(P_k)$ a cada
+passo. Partindo da forma de Joseph
+$P_k=(I-K_kC_d)P_k^{-}(I-K_kC_d)^{\mathsf T}+K_kRK_k^{\mathsf T}$ (numericamente
+mais estável, adotada também no EKF do projeto), derivando
+$\operatorname{tr}(P_k)$ em relação a $K_k$ e igualando a zero obtém-se
+
+\[
+\frac{\partial}{\partial K_k}\operatorname{tr}(P_k) = 0
+\;\Longrightarrow\;
+K_k = P_k^{-}C_d^{\mathsf T}\big(C_dP_k^{-}C_d^{\mathsf T}+R\big)^{-1} = P_k^{-}C_d^{\mathsf T}S_k^{-1},
+\]
+
+que é exatamente o ganho acima~\cite{kalman1960, simon2006}. Sob as hipóteses
+usuais — modelo linear, ruídos brancos, gaussianos, de média nula e
+descorrelacionados entre si e do estado inicial — esse ganho torna o KF o
+estimador de \textbf{variância mínima entre todos os estimadores lineares não
+enviesados} (propriedade BLUE, \emph{Best Linear Unbiased Estimator}), e
+coincide com o estimador de máxima verossimilhança/MMSE quando os ruídos são
+gaussianos~\cite{kalman1960, simon2006, grewal2013}. É essa otimalidade
+comprovada — e não apenas uma escolha heurística de ganho, como no filtro
+complementar (Seção~\ref{sec:complementar}) — que justifica o KF como o
+patamar de comparação "ótimo" \emph{dentro do regime linear} para o restante do
+trabalho.
+
+\paragraph{Escolha de $Q$ e $R$.} O código (\texttt{params.m}) adota, como
+ponto de partida,
+
+\begin{table}[H]
+\centering
+\begin{tabular}{l l}
+\hline
+\textbf{Matriz} & \textbf{Valor} \\
+\hline
+$R$ (ruído de medição)  & $\operatorname{diag}(\sigma_x^2,\ \sigma_\theta^2) = \operatorname{diag}(2{,}5\times10^{-5},\ 2{,}5\times10^{-5})$ \\
+$Q$ (ruído de processo) & $\operatorname{diag}(10^{-4},\ 10^{-3},\ 10^{-4},\ 10^{-3})$ \\
+\hline
+\end{tabular}
+\caption{Covariâncias de ruído usadas pelo KF linear (compartilhadas com EKF/UKF
+via \texttt{p.Q}/\texttt{p.R}, salvo \emph{override} \texttt{p.Q\_kf}/\texttt{p.R\_kf}).}
+\label{tab:params-qr}
+\end{table}
+
+$R$ decorre diretamente do ruído físico dos encoders (Tabela~\ref{tab:params}) e
+não é, a rigor, um parâmetro de sintonia. Já $Q$ modela a incerteza sobre o
+quanto o modelo \emph{linearizado} deixa de representar a dinâmica real
+(erro de linearização, atrito não modelado, discretização, etc.) e é, na
+prática, um parâmetro de ajuste: $Q$ pequeno demais faz o filtro confiar
+excessivamente no modelo linear e divergir fora da vizinhança da vertical
+(justamente o regime do \emph{swing-up}); $Q$ grande demais aproxima o KF de
+uma simples fusão ponderada, perdendo a vantagem de usar o modelo. Vale notar
+que o valor de $Q$ aqui foi ajustado diretamente no tempo discreto, e não
+obtido pela discretização rigorosa de uma densidade espectral de ruído de
+processo contínuo (o que exigiria o método de Van Loan~\cite{vanloan1978}); essa
+é uma simplificação comum em projetos aplicados~\cite{simon2006}, mas vale
+como ressalva ao interpretar $Q$ como "física" em vez de "efetiva".
+% >>> EDITAR: relatar aqui a sensibilidade observada a Q/R nos cenários S5
+% (mistuned Q/R) quando os resultados estiverem disponíveis — este parágrafo é
+% só a base teórica.
+
+A consistência estatística desse ajuste de $Q$ é o que o teste NEES
+(\emph{Normalised Estimation Error Squared}), já implementado em
+\texttt{compute\_metrics.m}, mede: sob as hipóteses acima, $e_k^{\mathsf T}P_k^{-1}e_k$
+segue uma distribuição $\chi^2$ com 4 graus de liberdade (dimensão do estado); um
+NEES sistematicamente acima do intervalo esperado indica $P$
+\textbf{otimista} (subestima o erro real — tipicamente $Q$ ou $R$ pequenos
+demais), e um NEES sistematicamente abaixo indica $P$ \textbf{pessimista}
+(superestima o erro — $Q$ ou $R$ grandes demais)~\cite{barshalom2001}. O mesmo
+raciocínio, aplicado à inovação $\nu_k=z_k-C_d\hat X_k^{-}$ em vez do erro de
+estado, dá o teste NIS (\emph{Normalised Innovation Squared}, ainda pendente de
+implementação em \texttt{compute\_metrics.m} no momento deste texto).
+
+\subsection{Síntese comparativa}
+\label{sec:sintese-classicos}
+
+A Tabela~\ref{tab:classicos} resume as diferenças estruturais entre os três
+estimadores desta seção.
+
+% >>> [SEÇÃO B] Tabela 3 reformatada: estava com 4 colunas "l" (largura livre)
+% e estourava a margem da página porque o cabeçalho da última coluna era uma
+% frase longa. Troquei para colunas de largura fixa (p{...}, quebram linha) e
+% fonte \small, e encurtei o cabeçalho da última coluna.
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}p{3.1cm} p{3.4cm} p{2.6cm} p{3.3cm}@{}}
+\hline
+\textbf{Estimador} & \textbf{Modelo dinâmico} & \textbf{Ganho} & \textbf{$P$ tem significado estatístico?} \\
+\hline
+Baseline (passa-baixas)  & Nenhum                        & Fixo ($\alpha_{lp}$)             & Não \\[2pt]
+Complementar             & Implícito (veloc. constante)  & Fixo ($\alpha_{comp}$)           & Não \\[2pt]
+KF linear                & $A_d,B_d$ (linearizado)       & Ótimo, variável ($K_k$)          & Sim (sob hipóteses lineares/gaussianas) \\
+\hline
+\end{tabular}
+\caption{Comparação estrutural dos três estimadores clássicos implementados.}
+\label{tab:classicos}
+\end{table}
+
+% >>> [SEÇÃO B] Esta subseção foi reescrita com resultados reais (antes eram
+% apenas expectativas qualitativas + placeholders de figura). Ver
+% tests/test_classical_filters.m para o código que gerou os números e as
+% figuras abaixo. EDITAR: os parágrafos a seguir descrevem o que os dados
+% mostraram — ajuste o texto se reformular o script ou obtiver resultados
+% diferentes, e principalmente quando a Fase 2 (harness completo, ver abaixo)
+% estiver pronta.
+
+\paragraph{Metodologia (resultado preliminar, pré-Fase~2).} No momento em que
+este texto foi escrito, a planta não-linear (\texttt{plant\_cartpole.m}), o
+controlador (\texttt{controller\_lqr.m}, \texttt{swingup.m}) e o
+\emph{dropout}/\emph{outliers} do sensor (\texttt{sensor\_model.m}) — todos de
+responsabilidade da Pessoa A — ainda eram \emph{placeholders}, de modo que o
+harness completo (\texttt{main.m}/\texttt{run\_scenario.m}) ainda não roda de
+ponta a ponta. Para validar o código desta seção e gerar resultados enquanto
+isso, foi escrito \texttt{tests/test\_classical\_filters.m}, que (i)
+confere numericamente a linearização de \texttt{linearise\_upright.m} contra o
+Jacobiano analítico independente \texttt{jacobian\_f.m} (Pessoa C) — as duas
+linearizações, feitas por pessoas diferentes, batem a menos de $10^{-8}$; (ii)
+simula uma trajetória próxima ao cenário S1 (haste a $5^{\circ}$ da vertical)
+sob realimentação de estado \emph{apenas para fins de demonstração}, usando o
+ganho $K$ já publicado na Seção~\ref{sec:matlab} — não é o
+\texttt{controller\_lqr.m} definitivo, que continua em aberto; e (iii) roda os
+três estimadores desta seção em paralelo sobre essa trajetória, com o ruído
+nominal e com o multiplicador $10\times$ do cenário S3. Quando a Fase~2 do
+fluxo do projeto (README) estiver pronta, os mesmos gráficos devem ser
+regerados a partir de \texttt{run\_scenario.m} com os cenários reais S1/S3, o
+que pode alterar os números (mas não deve alterar as conclusões qualitativas
+abaixo, já que a única diferença relevante é o controlador de fato usado).
+
+\paragraph{Resultados.} A Tabela~\ref{tab:rmse-classicos} e as
+Figuras~\ref{fig:s1-classicos-theta}--\ref{fig:classicos-rmse} resumem o que
+foi observado.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\hline
+\textbf{Estimador} & \textbf{RMSE $\theta$, S1 (°)} & \textbf{RMSE $\theta$, S3 (°)} & \textbf{RMSE $x$, S1 (m)} & \textbf{RMSE $x$, S3 (m)} \\
+\hline
+Baseline (passa-baixas) & 0,250 & 1,018 & 0,0031 & 0,0175 \\
+Complementar             & 1,036 & 2,500 & 0,0093 & 0,0388 \\
+KF linear                & 0,241 & 1,157 & 0,0043 & 0,0188 \\
+\hline
+\end{tabular}
+\caption{RMSE de $\theta$ e de $x$ para os três estimadores clássicos, no
+cenário de demonstração descrito acima, com ruído nominal (S1) e com
+ruído $10\times$ (S3). Valores gerados por
+\texttt{tests/test\_classical\_filters.m}.}
+\label{tab:rmse-classicos}
+\end{table}
+
+Dois pontos merecem destaque — um deles contraria a expectativa ingênua de que
+"mais modelo = sempre melhor":
+
+\begin{itemize}
+  \item \textbf{Baseline e KF praticamente empatados, ambos à frente do
+  complementar.} No regime quase-linear e bem amostrado ($100$~Hz) deste
+  cenário, o passa-baixas bem ajustado ($\alpha_{lp}=0{,}8$) e o KF linear
+  entregam RMSE de $\theta$ quase idênticos ($0{,}25^{\circ}$ \emph{vs.}
+  $0{,}24^{\circ}$ com ruído nominal). Isso \textbf{não} contradiz a
+  otimalidade do KF (Seção~\ref{sec:kf-algoritmo}): o KF é ótimo
+  \emph{dado} o par $(Q,R)$ configurado, e neste cenário de demonstração a
+  trajetória verdadeira é gerada por uma EDO determinística, sem ruído de
+  processo de fato injetado — ou seja, o $Q$ de \texttt{params.m}
+  (Tabela~\ref{tab:params-qr}), calibrado para representar erro de
+  linearização e dinâmica não modelada, é relativamente "generoso" frente ao
+  ruído de processo real (próximo de zero) deste cenário específico. Isso dá
+  ao ganho do KF uma folga maior do que o estritamente necessário, deixando
+  passar um pouco mais de ruído de medição do que um passa-baixas
+  fortemente suavizante deixaria — o mesmo fenômeno de sensibilidade a
+  $Q/R$ mistunado que o cenário S5 é desenhado para expor
+  (Seção~\ref{sec:kf-algoritmo}). A vantagem estrutural do KF (explorar
+  $A_d,B_d$) deve ficar mais evidente quando houver ruído de processo real
+  (p.ex. erro de linearização acumulado fora da vizinhança da vertical) ou
+  quando $Q$ for recalibrado — ambos fora do escopo desta seção.
+
+  \item \textbf{Filtro complementar é o pior dos três, por larga margem.} A
+  Figura~\ref{fig:s1-classicos-theta} mostra o motivo: com o ganho padrão
+  $\alpha_{comp}=0{,}02$ (Seção~\ref{sec:complementar}), o filtro confia
+  $98\,\%$ na predição de velocidade constante a cada passo e corrige
+  lentamente pela medição — adequado para deriva lenta, mas lento demais
+  para acompanhar a oscilação inicial rápida de $5^{\circ}$ deste cenário: o
+  filtro \emph{overshoot}a a mais de $6^{\circ}$ e só converge por volta de
+  $t\approx2$~s, enquanto baseline e KF acompanham a verdade quase
+  imediatamente. Sob ruído $10\times$ (S3), seu RMSE mais que dobra
+  ($1{,}04^{\circ}\to2{,}50^{\circ}$), a maior degradação relativa das três
+  — esperado, já que $\alpha_{comp}$ é fixo e não se adapta ao novo nível de
+  ruído, ao contrário do ganho $K_k$ do KF, recalculado a cada passo.
+\end{itemize}
+
+Nenhum dos três estimadores desta seção foi testado no \emph{swing-up}
+(cenário~S2, ângulos grandes): isso exigiria o controlador de \emph{swing-up}
+(Pessoa A, ainda TODO) e, mais importante, é precisamente o regime em que a
+linearização por trás do KF deixa de valer — razão pela qual o EKF/UKF (Seção
+seguinte) são necessários, e não uma limitação deste teste específico.
+
+\figplaceholder{results/S1\_classicos\_theta.png}{Ângulo $\theta$ estimado
+pelos três estimadores clássicos no cenário de demonstração (análogo a S1,
+$5^{\circ}$ de perturbação inicial, ruído nominal) \emph{vs.} estado verdadeiro
+simulado. O filtro complementar (ganho fixo $\alpha_{comp}=0{,}02$)
+\emph{overshoot}a e leva ${\sim}2$~s para convergir; baseline e KF acompanham a
+verdade quase imediatamente.}{fig:s1-classicos-theta}
+
+\figplaceholder{results/S1\_S3\_classicos\_rmse.png}{RMSE de $\theta$ dos três
+estimadores clássicos no cenário de demonstração, com ruído nominal e com
+ruído $10\times$ (análogo a S1 \emph{vs.} S3). O complementar tem a maior
+degradação relativa; baseline e KF permanecem próximos em ambos os
+níveis.}{fig:classicos-rmse}
+
+%=================================================================================================
+%   >>> [SEÇÃO B — FIM]
+%=================================================================================================
+
+%-----------------------------------------------------------------------------------------------
+%   DISCUSSAO / ARQUITETURA DA MALHA
+%-----------------------------------------------------------------------------------------------
+\section{Arquitetura da malha e discussão}
+
+A Figura~\ref{fig:malha} reúne os módulos num diagrama de blocos da malha
+fechada. O laço opera em tempo discreto (passo $\Delta t$): a cada instante o
+\textbf{sensor} mede as posições ($z=[x;\theta]$ com ruído/perda), o
+\textbf{estimador} (KF, EKF ou UKF) reconstrói o estado completo $\hat{X}$, o
+\textbf{controlador} de duas fases gera a força $u$ e a \textbf{planta}
+não-linear é integrada até o passo seguinte.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  >=Latex,
+  node distance=1.5cm and 1.9cm,
+  block/.style={draw, thick, rounded corners, align=center,
+                minimum height=1.25cm, minimum width=2.5cm},
+  sig/.style={->, thick, line width=0.9pt}
+]
+  \node[block] (ctrl) {Controlador\\[-2pt]\small swing-up + PD\\[-2pt]\small $\rightarrow$ LQR};
+  \node[block, right=of ctrl] (plant) {Planta\\[-2pt]\small cart-pole\\[-2pt]\small (não-linear)};
+  \node[block, right=of plant] (sensor) {Sensor\\[-2pt]\small ruído, dropout,\\[-2pt]\small outliers};
+  \node[block, below=1.6cm of sensor] (est) {Estimador\\[-2pt]\small KF / EKF / UKF};
+
+  \draw[sig] ($(ctrl.west)+(-1.5,0)$) -- node[above,align=center]{$X^\ast{=}0$}(ctrl.west);
+  \draw[sig] (ctrl) -- node[above]{$u$} (plant);
+  \draw[sig] (plant) -- node[above,align=center]{$x$\\\small (verdade)} (sensor);
+  \draw[sig] (sensor) -- node[right]{$z$} (est);
+  \coordinate (fb) at (ctrl.south |- est.west);
+  \draw[sig] (est.west) -- node[below]{$\hat{X}$ (estimado)} (fb) -- (ctrl.south);
+\end{tikzpicture}
+\caption{Malha de controle com estimação de estados. O controlador nunca acessa
+o estado verdadeiro: fecha o laço sobre a estimativa $\hat{X}$ (princípio da
+separação). É neste ponto que se comparam os quatro estimadores.}
+\label{fig:malha}
+\end{figure}
+
+Dois aspectos merecem destaque na discussão. Primeiro, o
+\textbf{princípio da separação}: o controlador foi projetado supondo acesso ao
+estado, mas na prática opera sobre $\hat{X}$; a qualidade de cada estimador
+reflete-se diretamente no desempenho da malha, e é exatamente essa degradação
+que o trabalho quantifica. Segundo, o \textbf{controlador de duas fases}: longe
+da vertical usa a lei não-linear de \emph{energy shaping} com o PD de carro;
+dentro da janela de captura comuta para o LQR linear. Assim, um único
+experimento leva os filtros por um regime fortemente não-linear (\emph{swing-up})
+e por um regime quase-linear (estabilização), evidenciando onde cada técnica de
+estimação compensa.
+
+%-----------------------------------------------------------------------------------------------
+%   REFERENCIAS
+%-----------------------------------------------------------------------------------------------
+% >>> [SEÇÃO B] argumento trocado de {9} para {99}: é só a largura reservada
+% para o rótulo numérico (afeta a indentação), e passamos de 5 para 13
+% referências com a adição das entradas da Seção B logo abaixo.
+\begin{thebibliography}{99}
+
+\bibitem{mathworks}
+MathWorks. \emph{Derive and Simulate Cart-Pole System} (Symbolic Math Toolbox).
+Disponível em:
+\url{https://www.mathworks.com/help/symbolic/derive-and-simulate-cart-pole-system.html}.
+
+\bibitem{mit}
+R.~Tedrake. \emph{Underactuated Robotics: Algorithms for Walking, Running,
+Swimming, Flying, and Manipulation} --- Cap. \emph{The Simple Pendulum}.
+Disponível em: \url{https://underactuated.mit.edu/pend.html}.
+
+\bibitem{astrom}
+K.~J.~Åström, K.~Furuta. \emph{Swinging up a Pendulum by Energy Control}.
+Automatica, vol.~36, n.~2, pp.~287--295, 2000.
+
+\bibitem{mit2}
+R.~Tedrake. \emph{Underactuated Robotics} --- Cap. \emph{Acrobots, Cart-Poles,
+and Quadrotors}. Disponível em: \url{https://underactuated.mit.edu/acrobot.html}.
+
+\bibitem{spong}
+C.~C.~Chung, J.~Hauser. \emph{Nonlinear control of a swinging pendulum}.
+Automatica, vol.~31, n.~6, pp.~851--862, 1995. Ver também
+M.~W.~Spong, \emph{Energy Based Control of a Class of Underactuated Mechanical
+Systems}, IFAC World Congress, 1996.
+
+% >>> [SEÇÃO B — INÍCIO DAS REFERÊNCIAS ADICIONADAS] usadas em
+% Seção~\ref{sec:estimadores-classicos} (baseline, filtro complementar, KF linear
+% e discretização ZOH). Vale a pena consultar estas na ordem: (1) Kalman 1960 é o
+% artigo original (curto, histórico, mais difícil de ler hoje em dia); (2) Welch
+% & Bishop é o tutorial mais didático para começar; (3) Simon 2006 e Grewal &
+% Andrews são os livros-texto de referência, com os capítulos de KF/EKF/UKF todos
+% num só lugar; (4) Higgins 1975 é a referência clássica do filtro complementar;
+% (5) Franklin/Powell/Workman e Åström & Wittenmark cobrem a discretização ZOH
+% (conteúdo de controle digital, alinhado à ementa de CMC-12); (6) Van Loan 1978
+% e Bar-Shalom et al. são mais avançados/opcionais (ruído de processo contínuo
+% "correto" e testes de consistência NEES/NIS, respectivamente).
+\bibitem{kalman1960}
+R.~E.~Kalman. \emph{A New Approach to Linear Filtering and Prediction
+Problems}. Journal of Basic Engineering (ASME Transactions), vol.~82, Series
+D, pp.~35--45, 1960.
+
+\bibitem{welch1995}
+G.~Welch, G.~Bishop. \emph{An Introduction to the Kalman Filter}. Technical
+Report TR~95-041, University of North Carolina at Chapel Hill, 1995
+(atualizado em 2006). Disponível em:
+\url{https://www.cs.unc.edu/~welch/media/pdf/kalman_intro.pdf}.
+
+\bibitem{simon2006}
+D.~Simon. \emph{Optimal State Estimation: Kalman, $H_\infty$, and Nonlinear
+Approaches}. Wiley, 2006.
+
+\bibitem{grewal2013}
+M.~S.~Grewal, A.~P.~Andrews. \emph{Kalman Filtering: Theory and Practice Using
+MATLAB}, 4.ª ed. Wiley, 2015 (1.ª ed. 1993).
+
+\bibitem{higgins1975}
+W.~T.~Higgins. \emph{A Comparison of Complementary and Kalman Filtering}. IEEE
+Transactions on Aerospace and Electronic Systems, vol.~AES-11, n.~3,
+pp.~321--325, 1975.
+
+\bibitem{brownhwang2012}
+R.~G.~Brown, P.~Y.~C.~Hwang. \emph{Introduction to Random Signals and Applied
+Kalman Filtering}, 4.ª ed. Wiley, 2012.
+
+\bibitem{franklin1997}
+G.~F.~Franklin, J.~D.~Powell, M.~L.~Workman. \emph{Digital Control of Dynamic
+Systems}, 3.ª ed. Addison-Wesley, 1997.
+
+\bibitem{astromwittenmark1997}
+K.~J.~Åström, B.~Wittenmark. \emph{Computer-Controlled Systems: Theory and
+Design}, 3.ª ed. Prentice Hall, 1997.
+
+\bibitem{oppenheim}
+A.~V.~Oppenheim, R.~W.~Schafer. \emph{Discrete-Time Signal Processing}, 3.ª
+ed. Prentice Hall, 2009.
+
+\bibitem{vanloan1978}
+C.~F.~Van Loan. \emph{Computing Integrals Involving the Matrix Exponential}.
+IEEE Transactions on Automatic Control, vol.~23, n.~3, pp.~395--404, 1978.
+
+\bibitem{barshalom2001}
+Y.~Bar-Shalom, X.~R.~Li, T.~Kirubarajan. \emph{Estimation with Applications to
+Tracking and Navigation: Theory, Algorithms and Software}. Wiley, 2001.
+% >>> [SEÇÃO B — FIM DAS REFERÊNCIAS ADICIONADAS]
+
+\end{thebibliography}
+
+\end{document}

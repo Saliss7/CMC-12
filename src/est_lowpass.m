@@ -17,6 +17,15 @@
 
 function [xhat, P] = est_lowpass(xhat_prev, P_prev, z_k, u_k, p) %#ok<INUSD>
 
+% Dropped measurement (S4, NaN sentinel — see sensor_model.m): this filter has
+% no dynamic model to predict with, so the only sensible fallback is to hold
+% the last estimate (freeze) until a real measurement arrives again.
+if any(~isfinite(z_k))
+    xhat = xhat_prev;
+    P    = P_prev;
+    return
+end
+
 % Low-pass filter coefficient (0 < alpha < 1); closer to 1 = smoother, more lag
 alpha = getfield_default(p, 'alpha_lp', 0.8);
 

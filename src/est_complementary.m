@@ -13,6 +13,13 @@ alpha = getfield_default(p, 'alpha_comp', 0.02);
 x_pred     = xhat_prev(1) + p.dt * xhat_prev(2);
 theta_pred = xhat_prev(3) + p.dt * xhat_prev(4);
 
+% Dropped measurement (S4, NaN sentinel — see sensor_model.m): unlike the
+% baseline, this filter does have a model, so fall back to a pure prediction
+% step (equivalent to alpha=0 just for this update) instead of freezing.
+if any(~isfinite(z_k))
+    z_k = [x_pred; theta_pred];
+end
+
 % Fuse prediction (high-frequency) with measurement (low-frequency)
 x_fused     = (1 - alpha) * x_pred     + alpha * z_k(1);
 theta_fused = (1 - alpha) * theta_pred + alpha * z_k(2);
