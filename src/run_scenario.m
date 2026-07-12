@@ -78,12 +78,19 @@ for k = 1:Nsteps
     dropped = isempty(z_k);
 
     % 2 — Estimate: predict with the previous control u_{k-1}, update with z_k.
-    %     On a dropout (z_k == []) the estimator must do a prediction-only step.
+    %     Bridges the sensor's dropout sentinel ([]) to the NaN sentinel the
+    %     common estimator interface expects (all five est_*.m check
+    %     any(~isfinite(z_k)) to detect a dropped reading and do a
+    %     prediction-only step). isfinite([]) is [] and any([]) is false, so
+    %     passing z_k straight through would silently skip the coast path (or,
+    %     for filters that index z_k directly, crash).
+    z_in = z_k;
+    if dropped, z_in = nan(2,1); end
     t0 = tic;
     if provides_dbg
-        [xhat, P, dbg] = estimator_fn(xhat, P, z_k, u_k_prev, pe);
+        [xhat, P, dbg] = estimator_fn(xhat, P, z_in, u_k_prev, pe);
     else
-        [xhat, P]      = estimator_fn(xhat, P, z_k, u_k_prev, pe);
+        [xhat, P]      = estimator_fn(xhat, P, z_in, u_k_prev, pe);
         dbg = [];
     end
     cpu_time = cpu_time + toc(t0);
