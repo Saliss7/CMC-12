@@ -37,10 +37,7 @@ for si = 1:numel(scenarios)
         est_name = estimators{ei,2};
 
         fprintf('Running %s / %s ...\n', sc.name, est_name);
-        t_start = tic;
-        log = run_scenario(est_fn, sc, p);
-        log.cpu_time = toc(t_start);
-
+        log     = run_scenario(est_fn, sc, p);   % log.cpu_time is set inside
         metrics = compute_metrics(log, p);
 
         fname = fullfile(results_dir, sprintf('%s_%s.mat', sc.name, est_name));
