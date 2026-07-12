@@ -129,6 +129,10 @@ Ruído do encoder ($\theta$) & $\sigma_\theta$ & $0{,}005$~rad \\
 
 \section{Planta de controle}
 
+A dedução das equações de movimento segue o procedimento de Lagrange/Newton
+para o cart-pole descrito por MathWorks~\cite{mathworks} e por
+Tedrake~\cite{mit}.
+
 %-----------------------------------------------------------------------------------------------
 %   DIAGRAMA DE CORPO LIVRE NO REFERENCIAL NAO INERCIAL DO CARRINHO
 %-----------------------------------------------------------------------------------------------
@@ -634,27 +638,13 @@ suave e econômica em força).
 \label{sec:matlab}
 
 Com $A$, $B$, $Q$ e $R$ definidos, o ganho é obtido pela função \texttt{lqr}
-(requer a \emph{Control System Toolbox}). O trecho abaixo reaproveita o Jacobiano
-analítico já implementado (\texttt{jacobian\_f.m}) para montar $A$:
-
-\begin{verbatim}
-p = params();                        % parametros fisicos
-A = jacobian_f([0;0;0;0], 0, p);     % matriz de estados (Jacobiano em theta=0)
-
-d     = p.m*p.L^2/3 + p.m*p.L^2;     % I + mL^2
-k     = p.m*p.L;                     % mL
-a     = p.M + p.m;                   % M + m
-Delta = a*d - k^2;                   % determinante em theta = 0
-B     = [0; d/Delta; 0; k/Delta];    % matriz de entrada
-
-assert(rank(ctrb(A,B)) == 4, 'par (A,B) nao controlavel');
-
-Q = diag([1/0.5^2, 1/2^2, 1/deg2rad(10)^2, 1/2^2]);
-R = 1/20^2;
-
-K = lqr(A, B, Q, R)                  % ganho otimo -> guardar em p.K_lqr
-eig(A - B*K)                         % polos de malha fechada (Re < 0 => estavel)
-\end{verbatim}
+do MATLAB (requer a \emph{Control System Toolbox}), reaproveitando o Jacobiano
+analítico já implementado em \texttt{jacobian\_f.m} para montar $A$ e $B$ em
+$\theta = 0$. Antes de resolver a equação de Riccati, verifica-se que o par
+$(A,B)$ é controlável (posto completo da matriz de controlabilidade); em
+seguida, \texttt{lqr(A, B, Q, R)} retorna o ganho ótimo $K$, cujos polos de
+malha fechada são obtidos por \texttt{eig(A - B*K)}. A implementação completa
+está disponível nos arquivos do projeto.
 
 O ganho resultante (valores de referência) é
 
@@ -682,10 +672,9 @@ O LQR só estabiliza a haste dentro de uma pequena vizinhança da vertical (sua
 região de atração). Quando o pêndulo parte pendurado, é preciso primeiro
 \textbf{levá-lo até essa vizinhança}. Como a linearização não vale para ângulos
 grandes, usa-se uma estratégia não-linear baseada em \textbf{energia}
-(\emph{energy shaping}), seguindo a formulação de Tedrake~\cite{mit} e o método
-clássico de Åström e Furuta~\cite{astrom}: em vez de seguir uma trajetória,
-injeta-se energia no pêndulo balançando o carro no ritmo certo, até que ele
-tenha energia suficiente para alcançar a vertical.
+(\emph{energy shaping}), seguindo a formulação de Tedrake~\cite{mit}: em vez de
+seguir uma trajetória, injeta-se energia no pêndulo balançando o carro no
+ritmo certo, até que ele tenha energia suficiente para alcançar a vertical.
 
 \subsection{Energia do pêndulo}
 
@@ -775,8 +764,8 @@ energia, o carro deriva sem limite (nas simulações, dezenas de metros), e o LQ
 recebe a haste no topo com o carro deslocado --- condição fora de sua região de
 atração, de modo que a captura falha.
 
-A solução clássica, seguindo Chung e Spong~\cite{spong} e Tedrake~\cite{mit2},
-é somar à lei de \emph{energy shaping} um controlador \textbf{PD sobre o carro},
+A solução clássica, seguindo Tedrake~\cite{mit}, é somar à lei de
+\emph{energy shaping} um controlador \textbf{PD sobre o carro},
 que o mantém próximo da origem sem impedir o balanço:
 
 \[
@@ -983,8 +972,8 @@ x_{fused} = (1-\alpha_{comp})\,x_{pred} + \alpha_{comp}\,z_{x,k},
 \]
 
 com as velocidades novamente obtidas por diferença atrasada do sinal fundido.
-O nome "complementar" vem da interpretação clássica no domínio da frequência
-introduzida por Higgins~\cite{higgins1975}: dados dois sensores (ou, aqui, um
+O nome "complementar" vem da interpretação clássica no domínio da frequência:
+dados dois sensores (ou, aqui, um
 sensor e um modelo) que medem a mesma grandeza com espectros de ruído
 complementares, pondera-se cada fonte por um par de filtros $H(s)$ e $1-H(s)$
 que somam a unidade —
@@ -1002,12 +991,11 @@ $\alpha_{comp} = 0{,}02$, o filtro confia fortemente na predição (98\,\%) e
 corrige lentamente pela medição (2\,\%) a cada passo — um compromisso adequado
 quando o modelo de velocidade constante é razoável entre amostras, mas que
 ainda assim acumula deriva se mantido por muitos passos sem medição (o mesmo
-problema clássico de INS/AHRS discutido por Higgins~\cite{higgins1975} e por
-Grewal \emph{et al.}~\cite{grewal2013}). É justamente esse ganho fixo,
-não-ótimo e invariante no tempo, que o Filtro de Kalman generaliza na próxima
-subseção: o KF pode ser visto como um filtro complementar cujo ganho $K_k$ é
-recalculado a cada passo para ser o \emph{ótimo} dado o par
-modelo/medição~\cite{simon2006, brownhwang2012}.
+problema clássico de fusão de sensores~\cite{simon2006}). É justamente esse
+ganho fixo, não-ótimo e invariante no tempo, que o Filtro de Kalman generaliza
+na próxima subseção: o KF pode ser visto como um filtro complementar cujo
+ganho $K_k$ é recalculado a cada passo para ser o \emph{ótimo} dado o par
+modelo/medição~\cite{simon2006}.
 % >>> EDITAR: se quiser, comente aqui a diferença de comportamento observada
 % experimentalmente entre alpha_comp=0,02 (proj. atual) e valores maiores, quando
 % os resultados dos cenários S1/S3 estiverem disponíveis.
@@ -1037,14 +1025,13 @@ A_d = e^{A\Delta t}, \qquad
 B_d = \int_0^{\Delta t} e^{A\tau}\,d\tau\;B,
 \]
 
-resultado padrão de controle digital (ver, por exemplo, Franklin, Powell e
-Workman~\cite{franklin1997}, ou Åström e Wittenmark~\cite{astromwittenmark1997}).
+resultado padrão de controle digital~\cite{simon2006}.
 Quando $A$ é invertível, $B_d = A^{-1}(A_d - I)B$; \textbf{não é o caso aqui}: a
 dinâmica do cart-pole é invariante à translação (a posição $x$ não aparece em
 nenhuma equação de movimento), de modo que a primeira coluna de $A$
 (Seção~\ref{sec:linearizacao}) é inteiramente nula e $A$ é singular. O caminho
 numericamente robusto — e o que o MATLAB usa internamente em \texttt{c2d} — é
-formar a exponencial da matriz aumentada~\cite{franklin1997, astromwittenmark1997}
+formar a exponencial da matriz aumentada~\cite{simon2006}
 
 \[
 \exp\!\left(
@@ -1102,7 +1089,7 @@ como deveria.
 \label{sec:kf-algoritmo}
 
 Com $(A_d,B_d,C_d)$ em mãos, o KF linear implementado segue exatamente a forma
-padrão de predição--correção de Kalman~\cite{kalman1960, welch1995, simon2006}:
+padrão de predição--correção de Kalman~\cite{welch1995, simon2006}:
 
 \medskip
 \noindent\textbf{Predição} (propaga estado e incerteza pelo modelo, sem usar a medição):
@@ -1138,13 +1125,13 @@ $\operatorname{tr}(P_k)$ em relação a $K_k$ e igualando a zero obtém-se
 K_k = P_k^{-}C_d^{\mathsf T}\big(C_dP_k^{-}C_d^{\mathsf T}+R\big)^{-1} = P_k^{-}C_d^{\mathsf T}S_k^{-1},
 \]
 
-que é exatamente o ganho acima~\cite{kalman1960, simon2006}. Sob as hipóteses
+que é exatamente o ganho acima~\cite{simon2006}. Sob as hipóteses
 usuais — modelo linear, ruídos brancos, gaussianos, de média nula e
 descorrelacionados entre si e do estado inicial — esse ganho torna o KF o
 estimador de \textbf{variância mínima entre todos os estimadores lineares não
 enviesados} (propriedade BLUE, \emph{Best Linear Unbiased Estimator}), e
 coincide com o estimador de máxima verossimilhança/MMSE quando os ruídos são
-gaussianos~\cite{kalman1960, simon2006, grewal2013}. É essa otimalidade
+gaussianos~\cite{simon2006}. É essa otimalidade
 comprovada — e não apenas uma escolha heurística de ganho, como no filtro
 complementar (Seção~\ref{sec:complementar}) — que justifica o KF como o
 patamar de comparação "ótimo" \emph{dentro do regime linear} para o restante do
@@ -1178,8 +1165,8 @@ excessivamente no modelo linear e divergir fora da vizinhança da vertical
 uma simples fusão ponderada, perdendo a vantagem de usar o modelo. Vale notar
 que o valor de $Q$ aqui foi ajustado diretamente no tempo discreto, e não
 obtido pela discretização rigorosa de uma densidade espectral de ruído de
-processo contínuo (o que exigiria o método de Van Loan~\cite{vanloan1978}); essa
-é uma simplificação comum em projetos aplicados~\cite{simon2006}, mas vale
+processo contínuo; essa é uma simplificação comum em projetos
+aplicados~\cite{simon2006}, mas vale
 como ressalva ao interpretar $Q$ como "física" em vez de "efetiva".
 
 A consistência estatística desse ajuste de $Q$ é o que o teste NEES
@@ -1189,7 +1176,7 @@ segue uma distribuição $\chi^2$ com 4 graus de liberdade (dimensão do estado)
 NEES sistematicamente acima do intervalo esperado indica $P$
 \textbf{otimista} (subestima o erro real — tipicamente $Q$ ou $R$ pequenos
 demais), e um NEES sistematicamente abaixo indica $P$ \textbf{pessimista}
-(superestima o erro — $Q$ ou $R$ grandes demais)~\cite{barshalom2001}. O mesmo
+(superestima o erro — $Q$ ou $R$ grandes demais)~\cite{simon2006}. O mesmo
 raciocínio, aplicado à inovação $\nu_k=z_k-C_d\hat X_k^{-}$ em vez do erro de
 estado, dá o teste NIS (\emph{Normalised Innovation Squared}, $\chi^2$ com 2
 graus de liberdade — dimensão da medição), também implementado em
@@ -1448,7 +1435,7 @@ demais estimadores (Seção~\ref{sec:sensores}).
 
 O EKF lineariza a função de transição a cada passo — uma aproximação de
 primeira ordem que descarta termos de ordem $\geq 2$ e introduz viés quando a
-curvatura de $f$ é grande. O UKF~\cite{julieruhlmann1997, wan2000} aproxima,
+curvatura de $f$ é grande. O UKF~\cite{wan2000} aproxima,
 em vez disso, a \textbf{distribuição de probabilidade}: escolhe-se
 deterministicamente um pequeno conjunto de pontos (\emph{sigma points}) que
 reproduzem exatamente a média e a covariância de $\hat X_{k-1}$, propaga-se
@@ -1783,19 +1770,23 @@ rodados com o harness completo (\texttt{src/main.m}):
   isso.
 \end{itemize}
 
-Como trabalho futuro, ficam abertos: a recalibração de $Q$ pelo método de
-Van Loan~\cite{vanloan1978} (em vez do ajuste direto em tempo discreto,
+Como trabalho futuro, ficam abertos: a recalibração de $Q$ por um método
+rigoroso de densidade espectral (em vez do ajuste direto em tempo discreto,
 Seção~\ref{sec:kf-algoritmo}); a adoção uniforme da forma de Joseph na
 atualização do UKF (Seção~\ref{sec:ukf}); e a investigação da anomalia pontual
 de $\dot\theta$ do UKF sob inicialização ruim (S6, Seção~\ref{sec:sintese-final}).
 
+
+\section{Uso de IA}
+
+Usamos nesse projeto o Claude Code, desde a elaboração dos modelos usando matlab até a escrita deste relatório.
+Apesar do grande auxílio que essa ferramenta trouxe, não deixamos de aprender e utilizar nosso pensamento crítico quanto às decisões de projeto. A concepção do modelo físico foi feita à mão, as implementações dos filtros foram verificadas e o modelo matemático por trás também, com cada aluno cumprindo uma parte do projeto. 
+
+Obs: esta seção foi escrita por um humano :)
 %-----------------------------------------------------------------------------------------------
 %   REFERENCIAS
 %-----------------------------------------------------------------------------------------------
-% >>> [SEÇÃO B] argumento trocado de {9} para {99}: é só a largura reservada
-% para o rótulo numérico (afeta a indentação), e passamos de 5 para 13
-% referências com a adição das entradas da Seção B logo abaixo.
-\begin{thebibliography}{99}
+\begin{thebibliography}{9}
 
 \bibitem{mathworks}
 MathWorks. \emph{Derive and Simulate Cart-Pole System} (Symbolic Math Toolbox).
@@ -1807,36 +1798,6 @@ R.~Tedrake. \emph{Underactuated Robotics: Algorithms for Walking, Running,
 Swimming, Flying, and Manipulation} --- Cap. \emph{The Simple Pendulum}.
 Disponível em: \url{https://underactuated.mit.edu/pend.html}.
 
-\bibitem{astrom}
-K.~J.~Åström, K.~Furuta. \emph{Swinging up a Pendulum by Energy Control}.
-Automatica, vol.~36, n.~2, pp.~287--295, 2000.
-
-\bibitem{mit2}
-R.~Tedrake. \emph{Underactuated Robotics} --- Cap. \emph{Acrobots, Cart-Poles,
-and Quadrotors}. Disponível em: \url{https://underactuated.mit.edu/acrobot.html}.
-
-\bibitem{spong}
-C.~C.~Chung, J.~Hauser. \emph{Nonlinear control of a swinging pendulum}.
-Automatica, vol.~31, n.~6, pp.~851--862, 1995. Ver também
-M.~W.~Spong, \emph{Energy Based Control of a Class of Underactuated Mechanical
-Systems}, IFAC World Congress, 1996.
-
-% >>> [SEÇÃO B — INÍCIO DAS REFERÊNCIAS ADICIONADAS] usadas em
-% Seção~\ref{sec:estimadores-classicos} (baseline, filtro complementar, KF linear
-% e discretização ZOH). Vale a pena consultar estas na ordem: (1) Kalman 1960 é o
-% artigo original (curto, histórico, mais difícil de ler hoje em dia); (2) Welch
-% & Bishop é o tutorial mais didático para começar; (3) Simon 2006 e Grewal &
-% Andrews são os livros-texto de referência, com os capítulos de KF/EKF/UKF todos
-% num só lugar; (4) Higgins 1975 é a referência clássica do filtro complementar;
-% (5) Franklin/Powell/Workman e Åström & Wittenmark cobrem a discretização ZOH
-% (conteúdo de controle digital, alinhado à ementa de CMC-12); (6) Van Loan 1978
-% e Bar-Shalom et al. são mais avançados/opcionais (ruído de processo contínuo
-% "correto" e testes de consistência NEES/NIS, respectivamente).
-\bibitem{kalman1960}
-R.~E.~Kalman. \emph{A New Approach to Linear Filtering and Prediction
-Problems}. Journal of Basic Engineering (ASME Transactions), vol.~82, Series
-D, pp.~35--45, 1960.
-
 \bibitem{welch1995}
 G.~Welch, G.~Bishop. \emph{An Introduction to the Kalman Filter}. Technical
 Report TR~95-041, University of North Carolina at Chapel Hill, 1995
@@ -1847,52 +1808,14 @@ Report TR~95-041, University of North Carolina at Chapel Hill, 1995
 D.~Simon. \emph{Optimal State Estimation: Kalman, $H_\infty$, and Nonlinear
 Approaches}. Wiley, 2006.
 
-\bibitem{grewal2013}
-M.~S.~Grewal, A.~P.~Andrews. \emph{Kalman Filtering: Theory and Practice Using
-MATLAB}, 4.ª ed. Wiley, 2015 (1.ª ed. 1993).
-
-% >>> [SEÇÃO C] referências do EKF/UKF (Seção~\ref{sec:ekf-ukf}): a
-% transformada unscented escalonada usada em est_ukf.m segue Wan & van der
-% Merwe 2000; Julier & Uhlmann 1997 é a proposta original do UKF.
-\bibitem{julieruhlmann1997}
-S.~J.~Julier, J.~K.~Uhlmann. \emph{A New Extension of the Kalman Filter to
-Nonlinear Systems}. Proc. SPIE, Signal Processing, Sensor Fusion, and Target
-Recognition VI, vol.~3068, pp.~182--193, 1997.
-
 \bibitem{wan2000}
 E.~A.~Wan, R.~van der Merwe. \emph{The Unscented Kalman Filter for Nonlinear
 Estimation}. Proc. IEEE Adaptive Systems for Signal Processing, Communications,
 and Control Symposium (AS-SPCC), pp.~153--158, 2000.
 
-\bibitem{higgins1975}
-W.~T.~Higgins. \emph{A Comparison of Complementary and Kalman Filtering}. IEEE
-Transactions on Aerospace and Electronic Systems, vol.~AES-11, n.~3,
-pp.~321--325, 1975.
-
-\bibitem{brownhwang2012}
-R.~G.~Brown, P.~Y.~C.~Hwang. \emph{Introduction to Random Signals and Applied
-Kalman Filtering}, 4.ª ed. Wiley, 2012.
-
-\bibitem{franklin1997}
-G.~F.~Franklin, J.~D.~Powell, M.~L.~Workman. \emph{Digital Control of Dynamic
-Systems}, 3.ª ed. Addison-Wesley, 1997.
-
-\bibitem{astromwittenmark1997}
-K.~J.~Åström, B.~Wittenmark. \emph{Computer-Controlled Systems: Theory and
-Design}, 3.ª ed. Prentice Hall, 1997.
-
 \bibitem{oppenheim}
 A.~V.~Oppenheim, R.~W.~Schafer. \emph{Discrete-Time Signal Processing}, 3.ª
 ed. Prentice Hall, 2009.
-
-\bibitem{vanloan1978}
-C.~F.~Van Loan. \emph{Computing Integrals Involving the Matrix Exponential}.
-IEEE Transactions on Automatic Control, vol.~23, n.~3, pp.~395--404, 1978.
-
-\bibitem{barshalom2001}
-Y.~Bar-Shalom, X.~R.~Li, T.~Kirubarajan. \emph{Estimation with Applications to
-Tracking and Navigation: Theory, Algorithms and Software}. Wiley, 2001.
-% >>> [SEÇÃO B — FIM DAS REFERÊNCIAS ADICIONADAS]
 
 \end{thebibliography}
 
