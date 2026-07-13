@@ -19,6 +19,7 @@ estimators = {
 };
 
 scenarios = {
+    S0_ideal();
     S1_stabilisation();
     S2_swingup();
     S3_high_noise();

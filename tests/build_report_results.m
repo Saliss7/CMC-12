@@ -11,6 +11,9 @@
 %   S2_nees.png                — NEES(t) EKF vs UKF vs KF during swing-up (S2), with
 %                                 chi-square 95% bounds (consistency check)
 %   cpu_time.png               — mean cpu_time per estimator (log scale)
+%   S0_ideal_traj.png          — theta(t)/x(t) de referência sem ruído de medição (S0)
+%   S0_ideal_rmse.png          — RMSE(theta) por estimador em S0 (escala log), mostra
+%                                 o piso de erro de baseline/complementar mesmo sem ruído
 
 function build_report_results()
 
@@ -140,6 +143,57 @@ title('Custo computacional médio por estimador (média sobre S1..S6)');
 grid on;
 saveas(gcf, fullfile(results_dir, 'cpu_time.png'));
 close(gcf);
+
+% =============================================================================
+% Figures 5/6 — S0 (comportamento ideal, sem ruído de medição)
+% Carregado à parte de scen_names/R para não alterar índices/médias já usados
+% acima (e já referenciados no relatório) pelas figuras/tabela de S1..S6.
+% =============================================================================
+R0 = struct();
+for ei = 1:n_e
+    fname = fullfile(results_dir, sprintf('S0_ideal_%s.mat', est_names{ei}));
+    R0.(est_names{ei}) = load(fname);
+end
+
+% Trajetória de referência: verdade sob controle real (swing-up -> LQR) com
+% sensores perfeitos. Com R~0 as 3 estimadores baseados em modelo (KF/EKF/UKF)
+% ficam indistinguíveis da verdade; usa-se a verdade do UKF como referência.
+t0 = R0.ukf.log.t;
+figure('Visible','off','Position',[100 100 900 600]); theme(gcf,'light');
+subplot(2,1,1);
+plot(t0, rad2deg(wrap_pi(R0.ukf.log.x_true(:,3))), 'k', 'LineWidth', 1.6);
+ylabel('\theta (graus)'); grid on;
+title('Comportamento ideal sem ruído (S0): swing-up + estabilização');
+subplot(2,1,2);
+plot(t0, R0.ukf.log.x_true(:,1), 'k', 'LineWidth', 1.6);
+xlabel('t (s)'); ylabel('x (m)'); grid on;
+saveas(gcf, fullfile(results_dir, 'S0_ideal_traj.png'));
+close(gcf);
+
+% RMSE(theta) por estimador em S0: mesmo sem ruído de medição, baseline e
+% complementar mantêm erro residual (limitação estrutural, não do ruído);
+% KF/EKF/UKF colapsam para ~0.
+figure('Visible','off','Position',[100 100 800 500]); theme(gcf,'light');
+rmse_s0 = arrayfun(@(ei) rad2deg(R0.(est_names{ei}).metrics.rmse(3)), 1:n_e);
+bar(max(rmse_s0, 1e-6));   % floor para o eixo log não estourar em zero exato
+set(gca, 'XTickLabel', est_labels, 'YScale', 'log');
+ylabel('RMSE \theta (graus, escala log)');
+title('RMSE de \theta por estimador em S0 (sem ruído de medição)');
+grid on;
+saveas(gcf, fullfile(results_dir, 'S0_ideal_rmse.png'));
+close(gcf);
+
+% Acrescenta as linhas de S0 ao summary_table.csv (não mexe nas linhas S1..S6
+% já escritas acima).
+fid = fopen(fullfile(results_dir, 'summary_table.csv'), 'a');
+for ei = 1:n_e
+    m = R0.(est_names{ei}).metrics;
+    fprintf(fid, '%s,%s,%.6f,%.6f,%.6f,%.6f,%.4f,%.4f,%.4f,%.4f\n', ...
+        'S0_ideal', est_names{ei}, ...
+        m.rmse(1), m.rmse(2), rad2deg(m.rmse(3)), m.rmse(4), ...
+        m.nees_mean, nz(m.nis_mean), nz(m.t_converge), m.cpu_time*1000);
+end
+fclose(fid);
 
 fprintf('\nFigures written to %s\n', results_dir);
 

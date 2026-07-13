@@ -79,3 +79,52 @@ foi atualizado para refletir os resultados reais.
 - `results/summary_table.csv`, `results/S2_swingup_theta.png`,
   `results/S2_nees.png`, `results/S1_S3_rmse_theta.png`,
   `results/cpu_time.png`.
+
+# Changelog — Cenário S0 (referência ideal sem ruído)
+
+O relatório comparava os estimadores só sob ruído (S1–S6), sem nunca mostrar
+o comportamento-alvo do controlador quando a medição é perfeita. Adicionado
+o cenário **S0** para preencher essa lacuna.
+
+## Novo cenário
+
+- `scenarios/S0_ideal.m` — mesma condição inicial/horizonte de S2 (haste
+  pendurada, $\theta_0=180^\circ$, $T_f=15$s), mas com
+  $\sigma_x=\sigma_\theta=0$ e sem *dropout*/*outliers*.
+- `src/main.m` — S0 adicionado ao início da lista de cenários (agora 5
+  estimadores × 7 cenários).
+- `results/S0_ideal_<estimador>.mat` (5 arquivos) — gerados isoladamente
+  (sem rodar `main.m` por completo) para não alterar a realização de ruído
+  de S1–S6 já usada nos números publicados no relatório (`main.m` não fixa
+  `rng`).
+
+## `tests/build_report_results.m`
+
+Bloco novo, aditivo, que carrega os `.mat` de S0 à parte de `scen_names`/`R`
+(sem alterar os índices já usados pelas figuras/tabela de S1–S6):
+
+- `results/S0_ideal_traj.png` — $\theta(t)$ e $x(t)$ verdadeiros sob controle
+  real, referência de trajetória "sem ruído".
+- `results/S0_ideal_rmse.png` — RMSE de $\theta$ por estimador em S0, escala
+  log.
+- Linhas `S0_ideal,*` acrescentadas ao fim de `results/summary_table.csv`
+  (as linhas S1–S6 não foram tocadas — conferido byte a byte).
+
+## Achado
+
+Sem ruído de medição, KF/EKF/UKF colapsam para a verdade (RMSE de $\theta$
+$\lesssim 10^{-4\circ}$), mas baseline e complementar mantêm
+$10{,}28^\circ$/$51{,}75^\circ$ — quase idêntico ao RMSE já observado em S2
+com ruído nominal ($9{,}75^\circ$/$51{,}62^\circ$). Confirma que o erro
+desses dois métodos no *swing-up* é estrutural (diferenciação de um sinal
+rápido demais, sem modelo da dinâmica), não causado pelo ruído do sensor.
+
+## `main.tex`
+
+- Nova Seção 5.5 "Comportamento ideal de referência (sem ruído)"
+  (`sec:ideal`), logo após o projeto do *swing-up*/LQR, com a figura
+  `S0_ideal_traj.png`.
+- Nova Seção 8.6 "O que o ruído explica (e o que não explica): revisitando
+  S0" (`sec:ideal-rmse`), ao final da síntese do EKF/UKF, com a figura
+  `S0_ideal_rmse.png` e a discussão do achado acima.
+- `main.pdf` recompilado (28 páginas), sem referências quebradas.

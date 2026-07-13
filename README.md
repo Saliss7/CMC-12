@@ -3,192 +3,85 @@
 **Estudo Comparativo de Estimadores de Estado num Pêndulo Invertido sob Malha de Controle**
 
 Instituto Tecnológico de Aeronáutica (ITA) — Sistemas de Controle Contínuos e Discretos (CMC-12)
-Repositório: <https://github.com/Saliss7/CMC-12>
+## Integrantes
+
+- Pietro Maragno Trindade Marcucci
+- Bernardo Affonso Cheron Vendramini
+- Matheus Felipe Ramos Borges
+
+## O que o projeto faz
+
+Simula um pêndulo invertido sobre carro (cart-pole) em malha fechada (swing-up + LQR) e
+compara, sob o mesmo controle, cinco estimadores de estado — passa-baixas, filtro
+complementar, KF linear, EKF e UKF — em seis cenários de ruído/perda de medida/sintonia,
+avaliando RMSE, consistência estatística (NEES/NIS) e custo computacional.
 
 ---
 
-## 1. Objetivos do Projeto
+## Estrutura de pastas
 
-Implementar e comparar, dentro de uma malha de controle, diferentes técnicas de
-**estimação de estados** aplicadas a um **pêndulo invertido sobre carro (cart-pole)**
-— um sistema dinâmico não-linear.
-
-O curso de CMC-12 abordou apenas **filtragem passa-baixas clássica** e nenhuma
-estimação de estados por espaço de estados. Este projeto avança sobre isso ao
-implementar e confrontar quatro níveis de estimadores, do visto em aula ao estado
-da arte:
-
-```
-Diferenciação + passa-baixas  →  KF linear  →  EKF  →  UKF
-   (baseline do curso)          (linearizado)  (Jacobiano online)  (sigma points)
-```
-
-### Por que o pêndulo invertido
-O controle opera em **duas fases** que exercitam os filtros em regimes distintos:
-
-- **Swing-up** (energy-based): leva o pêndulo por **ângulos grandes** → regime
-  fortemente não-linear, onde o KF linear degrada e EKF/UKF se destacam.
-- **Estabilização** (LQR na vertical): regime quase-linear, onde todos os
-  filtros convergem de forma semelhante.
-
-Assim, um único experimento evidencia **onde cada filtro compensa**.
-
-### Escopo da comparação
-- **Estados:** posição do carro `x`, velocidade `ẋ`, ângulo `θ`, velocidade angular `θ̇`.
-- **Medições:** apenas as posições `x` e `θ` com ruído (encoders). As velocidades
-  `ẋ` e `θ̇` são estimadas.
-- **Métricas:** RMSE por estado, tempo de convergência, robustez a ruído alto,
-  a baixa taxa de amostragem / perda de medida, a erro de sintonia de `Q`/`R`,
-  sensibilidade à inicialização e custo computacional.
-- **Análise avançada:** consistência estatística (NEES/NIS — teste qui-quadrado).
-- **Malha fechada:** desempenho do controle com estado estimado por cada filtro
-  vs estado ideal (princípio da separação na prática).
-
-### Cenários de teste
-| ID | Cenário |
-|----|---------|
-| S1 | Estabilização na vertical (quase-linear) |
-| S2 | Swing-up (não-linearidade forte) |
-| S3 | Ruído de medição alto |
-| S4 | Baixa taxa de amostragem / perda de medidas |
-| S5 | Sensibilidade a erro de sintonia de `Q`/`R` |
-| S6 | Inicialização ruim (covariância inicial grande) |
-
-Cada cenário é avaliado em Monte Carlo (múltiplas sementes) para RMSE estatístico.
-
----
-
-## 2. Divisão de Tarefas
-
-> Preencher os nomes/handles do GitHub de cada integrante.
-
-| | **Pessoa A — Planta, Controle & Harness** | **Pessoa B — Filtros clássicos + KF linear** | **Pessoa C — Filtros não-lineares (EKF/UKF)** |
-|---|---|---|---|
-| **Integrante** | _(a definir)_ | _(a definir)_ | _(a definir)_ |
-| **Dono de** | Dinâmica não-linear do cart-pole; simulador da "verdade"; modelo de sensores (ruído, taxa, dropout, outliers); swing-up + LQR; harness de métricas/gráficos | Baseline (diferenciação + passa-baixas); filtro complementar; KF linear; linearização (Jacobiano na vertical) e discretização | EKF (Jacobianos online); UKF (sigma points / unscented transform); sintonia de `Q`/`R` dos não-lineares |
-| **Entregáveis** | `plant_cartpole.m`, `sensor_model.m`, `controller_lqr.m`, `swingup.m`, `run_scenario.m`, `compute_metrics.m` | `est_lowpass.m`, `est_complementary.m`, `est_kf.m` + doc da linearização | `est_ekf.m`, `est_ukf.m` |
-| **Seção do relatório** | Modelagem, controle e metodologia de simulação | KF linear, linearização e filtragem clássica | EKF/UKF e análise de consistência |
-
-**Compartilhado (todos):** resultados comparativos, discussão, conclusão e manual do usuário.
-
-### Contrato de interfaces (fixado no Dia 1)
-Para permitir trabalho paralelo, todo o grupo fixa três interfaces antes de codar:
-
-1. **Modelo de dados do experimento** — log padrão `[t, x_true(4), u, z(2)]`.
-2. **Assinatura comum de estimador** (drop-in para qualquer filtro):
-   ```matlab
-   [xhat, P] = estimator_update(xhat_prev, P_prev, z_k, u_k, params)
-   ```
-3. **Harness de avaliação** — recebe qualquer estimador + um cenário e devolve
-   métricas e gráficos.
-
-Com o contrato fixo, cada pessoa testa seu módulo com dados sintéticos antes de a
-planta final estar pronta.
-
-### Fluxo em fases (paralelismo)
-```
-Dia 1  ── TODOS: fixar contrato + parâmetros físicos do pêndulo
-Fase 1 ── A: planta+sensores+controle | B: KF linear+baseline | C: EKF+UKF     (PARALELO)
-Marco 1 ─ A entrega datasets reais + harness → B e C plugam seus filtros
-Fase 2 ── Integração: rodar os 4 filtros nos cenários S1..S6                    (semi-paralelo)
-Fase 3 ── TODOS: análise + relatório + manual do usuário
-```
-
----
-
-## 3. Convenção de Commits e Branches
-
-### Branches
-- `main` — sempre estável; só recebe merge via Pull Request revisado.
-- Uma branch por pessoa/módulo, prefixada pela área:
-  - `plant/*` — Pessoa A (planta, controle, harness)
-  - `filter-linear/*` — Pessoa B (KF linear, clássicos)
-  - `filter-nonlinear/*` — Pessoa C (EKF, UKF)
-  - `report/*` — texto do relatório
-- Exemplo: `filter-nonlinear/ekf-jacobian`, `plant/swingup`.
-
-### Mensagens de commit (Conventional Commits)
-Formato: `<tipo>(<escopo>): <descrição no imperativo>`
-
-- **Tipos:** `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
-- **Escopos sugeridos:** `plant`, `sensor`, `control`, `kf`, `ekf`, `ukf`,
-  `lowpass`, `harness`, `metrics`, `report`.
-
-Exemplos:
-```
-feat(plant): adiciona dinâmica não-linear do cart-pole
-feat(ekf): implementa predição com Jacobiano analítico
-fix(kf): corrige sinal na matriz de discretização
-docs(report): escreve fundamentação teórica do UKF
-test(harness): adiciona cenário S4 (perda de medidas)
-```
-
-### Regras de convivência (para paralelismo sem conflito)
-- **Não editar o contrato de interfaces sozinho.** Mudança nas assinaturas =
-  aviso ao grupo + PR revisado por todos.
-- Commits pequenos e frequentes; cada commit compila/roda.
-- Um arquivo `est_*.m` tem um único dono → evita conflito de merge.
-- `main` só avança por PR; ninguém dá `push` direto em `main`.
-- Sincronizar (`git pull --rebase`) antes de abrir PR.
-
----
-
-## 4. Estrutura de Pastas
 ```
 CMC-12/
 ├── README.md
-├── main.tex          # relatório (LaTeX/IEEE)
-├── src/
-│   ├── plant_cartpole.m
-│   ├── sensor_model.m
-│   ├── controller_lqr.m
-│   ├── swingup.m
-│   ├── est_lowpass.m
-│   ├── est_complementary.m
-│   ├── est_kf.m
-│   ├── est_ekf.m
-│   ├── est_ukf.m
-│   ├── linearise_upright.m
-│   ├── jacobian_f.m
-│   ├── params.m
-│   ├── main.m
-│   ├── run_scenario.m
-│   └── compute_metrics.m
-├── scenarios/        # definições de S1..S6
-├── tests/            # testes unitários e geração dos resultados do relatório
-└── results/          # gráficos, animações e tabelas gerados
+├── CHANGELOG.md      # registro da integração da Fase 2 e bugs corrigidos
+├── src/                # implementação (planta, controle, estimadores)
+│   ├── plant_cartpole.m     # dinâmica não-linear do cart-pole
+│   ├── sensor_model.m       # modelo de sensores (ruído, taxa, dropout)
+│   ├── controller_lqr.m     # controlador LQR (estabilização na vertical)
+│   ├── swingup.m             # controlador de swing-up (energy shaping)
+│   ├── linearise_upright.m  # linearização + discretização em theta=0
+│   ├── jacobian_f.m          # Jacobiano analítico da dinâmica (usado pelo EKF)
+│   ├── est_lowpass.m         # baseline: diferenciação + passa-baixas
+│   ├── est_complementary.m  # filtro complementar
+│   ├── est_kf.m               # Kalman Filter linear
+│   ├── est_ekf.m              # Extended Kalman Filter
+│   ├── est_ukf.m              # Unscented Kalman Filter
+│   ├── params.m               # parâmetros físicos e de sintonia
+│   ├── run_scenario.m         # roda um estimador num cenário, gera log
+│   ├── compute_metrics.m     # RMSE, NEES/NIS, custo computacional
+│   └── main.m                  # ponto de entrada: roda tudo (5 estimadores x 7 cenários)
+├── scenarios/          # definição dos cenários de teste S0..S6
+│   ├── S0_ideal.m              # referência ideal: sem ruído de medição
+│   ├── S1_stabilisation.m    # estabilização na vertical (quase-linear)
+│   ├── S2_swingup.m           # swing-up (não-linearidade forte)
+│   ├── S3_high_noise.m        # ruído de medição alto
+│   ├── S4_low_rate.m          # baixa taxa de amostragem / perda de medidas
+│   ├── S5_mistuned_QR.m       # sensibilidade a erro de sintonia de Q/R
+│   └── S6_bad_init.m          # inicialização ruim (covariância inicial grande)
+├── tests/               # testes unitários e geração das tabelas/figuras de resultados
+│   ├── test_classical_filters.m    # baseline, complementar, KF linear
+│   ├── test_nonlinear_filters.m    # EKF, UKF
+│   ├── build_report_results.m      # gera tabelas/figuras a partir dos .mat em results/
+│   └── animate_cartpole.m           # animação MATLAB (verdade vs. estimativa)
+└── results/             # gráficos, tabelas e animações gerados (saída, não editar à mão)
 ```
 
 ---
 
-## 5. Como Executar
+## Como executar
 
 ### Requisitos
-- MATLAB (sem toolboxes especiais — apenas funções base; `chi2inv` requer o
-  **Statistics and Machine Learning Toolbox**, usado em `build_report_results.m`).
-- Nenhum passo de instalação além de clonar o repositório.
+- MATLAB (sem toolboxes especiais — apenas funções base; `chi2inv` requer a
+  **Statistics and Machine Learning Toolbox**, usada em `build_report_results.m`).
 
 ### Rodar tudo (simulação + métricas)
 Da raiz do repositório:
 ```matlab
 run('src/main.m')
 ```
-Isso executa os 5 estimadores (`lowpass`, `complementary`, `kf`, `ekf`, `ukf`)
-em cada um dos 6 cenários (`S1`..`S6`), calcula as métricas
+Isso executa os 5 estimadores (`lowpass`, `complementary`, `kf`, `ekf`, `ukf`) em cada um
+dos 7 cenários (`S0`..`S6`, sendo `S0` a referência ideal sem ruído), calcula as métricas
 (`compute_metrics.m`) e salva um `.mat` por combinação cenário/estimador em
 `results/<cenario>_<estimador>.mat`.
 
-### Gerar tabelas e figuras do relatório
+### Gerar tabelas e figuras de resultados
 Após rodar `main.m` (os `.mat` em `results/` precisam existir):
 ```matlab
 addpath('src', 'tests');
 build_report_results
 ```
-Gera em `results/`:
-- `summary_table.csv` — RMSE por estado, NEES/NIS médios, tempo de
-  convergência e custo computacional para cada par (cenário, estimador);
-- `S2_swingup_theta.png`, `S1_S3_rmse_theta.png`, `S2_nees.png`,
-  `cpu_time.png` — figuras usadas no relatório.
+Gera em `results/` a tabela-resumo (RMSE, NEES/NIS, tempo de convergência, custo
+computacional por par cenário/estimador) e as figuras de resultados.
 
 ### Rodar os testes unitários
 Da raiz do repositório:
@@ -204,8 +97,8 @@ matlab -batch "addpath('src','tests'); test_nonlinear_filters"
 ```
 
 ### Reproduzir um cenário isolado
-Cada cenário em `scenarios/` retorna uma struct consumida por
-`run_scenario.m`; para rodar só um filtro num só cenário:
+Cada cenário em `scenarios/` retorna uma struct consumida por `run_scenario.m`; para
+rodar só um filtro num só cenário:
 ```matlab
 addpath('src', 'scenarios');
 p  = params();
@@ -214,16 +107,15 @@ log     = run_scenario(@est_ukf, sc, p);
 metrics = compute_metrics(log, p);
 ```
 
-### Visualizar os resultados (painel HTML)
-Após rodar `main.m` e `build_report_results`, abra `results/dashboard.html`
-diretamente no navegador (não requer servidor) para explorar
-interativamente as trajetórias, o RMSE, o NEES/NIS e o custo computacional
-dos cinco estimadores em cada cenário S1--S6.
-
-### Compilar o relatório
-O relatório (`main.tex`, raiz do repositório) é em LaTeX/IEEE e referencia as
-figuras de `results/`. Compilar com `pdflatex`/`latexmk` (requer suporte a
-`babel[portuguese]` e `utf8`), ou abrir diretamente no Overleaf:
-```bash
-pdflatex main.tex
+### Visualizar a animação do cart-pole
+```matlab
+addpath('src', 'tests');
+animate_cartpole
 ```
+Mostra a haste do pêndulo (verdade vs. estimativa) em movimento para inspecionar
+qualitativamente o desempenho de um estimador.
+
+### Visualizar os resultados (painel HTML)
+Após rodar `main.m` e `build_report_results`, abra `results/dashboard.html` diretamente
+no navegador (não requer servidor) para explorar interativamente as trajetórias, o
+RMSE, o NEES/NIS e o custo computacional dos cinco estimadores em cada cenário S1–S6.

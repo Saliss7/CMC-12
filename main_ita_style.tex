@@ -3,7 +3,7 @@
 \usepackage[portuguese]{babel}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[scale=0.8]{geometry}
+\usepackage[scale=0.8, headheight=2.7cm]{geometry}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{float}
@@ -11,6 +11,23 @@
 \usepackage{url}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta, calc, positioning}
+\usepackage{graphicx}
+\usepackage{fancyhdr, lastpage}
+\usepackage{sectsty}
+
+% --- Cabeçalho/rodapé no padrão dos relatórios de laboratório do CMC-12 ---
+\sectionfont{\fontsize{15}{15}\selectfont\color{black}}
+\subsectionfont{\fontsize{12}{15}\selectfont\color{black}}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{1pt}
+\renewcommand{\footrulewidth}{1pt}
+\newcommand{\relatoriotitulo}{Estudo Comparativo de Estimadores de Estado num
+Pêndulo Invertido sob Malha de Controle}
+\newcommand{\tituloabrev}{Estimadores de Estado num Pêndulo Invertido}
+\rhead{\includegraphics[height=1.2cm]{ITA.png}\vspace*{0.1cm}}
+\lhead{{\small\textbf{\tituloabrev}}\vspace*{0.1cm}}
+\cfoot{- {\thepage}\ -}
 
 % Cores usadas na figura (para lembrar a caneta azul/vermelha da anotação)
 \definecolor{azul}{RGB}{0,80,200}
@@ -41,20 +58,32 @@
 \shorthandoff{"}
 
 %-----------------------------------------------------------------------------------------------
-%       CABEÇALHO
+%       CAPA (padrão dos relatórios de laboratório do CMC-12)
 %-----------------------------------------------------------------------------------------------
-\begin{center}
-\textbf{Instituto Tecnológico de Aeronáutica - ITA} \\
-\textbf{Sistemas de Controle Contínuos e Discretos - CMC-12} \\
-\textbf{Alunos}: Pietro Maragno Trindade Marcucci, Bernardo Affonso Cheron Vendramini, Matheus Felipe Ramos Borges
-\end{center}
+\thispagestyle{empty}
+\begin{figure}[htb]
+    \centering
+    \includegraphics[scale=0.52]{ITA.png}
 
+    \large Instituto Tecnológico de Aeronáutica
+\end{figure}
 \begin{center}
-\textbf{Estudo Comparativo de Estimadores de Estado num Pêndulo Invertido sob
-Malha de Controle}
+    \huge{\textbf{\relatoriotitulo}}
+    \vspace{2.5cm}
+
+    \large \textbf{Pietro Maragno Trindade Marcucci}\\
+    \large \textbf{Bernardo Affonso Cheron Vendramini}\\
+    \large \textbf{Matheus Felipe Ramos Borges}
+    \vspace{3.5cm}
+
+    \large \textbf{CMC-12 --- Sistemas de Controle Contínuos e Discretos}\\[0.3cm]
+    \large \textbf{Prof. Marcos Ricardo Omena de Albuquerque Maximo}
+    \vspace{3.5cm}
+
+    \textbf{Departamento de Computação}\\
+    \textbf{Instituto Tecnológico de Aeronáutica -- ITA}
 \end{center}
-%-----------------------------------------------------------------------------------------------
-\vspace*{0.5cm}
+\newpage
 
 \section{Introdução}
 
